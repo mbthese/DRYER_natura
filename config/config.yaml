@@ -5,11 +5,11 @@ resourcesfolder:
 resultsfolder:
   ../results/
 fastqfiles:
-  - wolf_diet
+  - DRYER_natura
 #mergedfile:
-#  wolf_diet_merged
+#   DRYER_natura_merged
 split_fastq:
-  nfiles: 2
+  nfiles: 500
 alifilt:
   minscore: 40.00
 split_fasta:

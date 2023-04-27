@@ -7,3 +7,9 @@ workflow/*.out
 log/*.log
 resources/*
 results/*
+.Rproj.user
+
+
+*.csv
+*.jpeg
+*.png
