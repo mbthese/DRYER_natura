@@ -5,8 +5,33 @@ date: "2023-04-27"
 output: html_document
 ---
 
+#Notes
+
+The *Morisita-Horn* measure is based on the squared differences of the relative abundances of each species in the two assemblages. Because of this squared distance, the Morisita-Horn index is dominated by the most abundant species, while the relatively rare species have little effect (even if there are many of them). 
+
+*Hellinger transformation* has therefore two types of use: (a) to calculate transformation-based ordination, or (b) to standardize species composition data:
+
+(a) : linear ordination methods (PCA, RDA) are based on Euclidean distances, which are sensitive to double-zero problem. If the species composition data are first Hellinger transformed, and then used in linear ordination methods, the combination of Hellinger transformation + Euclidean distance means that the distance used by these methods is Hellinger distance, which is not sensitive to double-zero problem. Here, the reason to transform the data is to simply avoid influence of double-zeros in the ordination analysis.
+
+
+(b) : Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them. This could be useful if we are not interested in changes of absolute species abundances, but relative abundances. E.g. if species A has abundance 30 in sample 1 and 20 in sample 2, and species B has abundance 3 in sample 1 and 2 in sample 2, the absolute change is 10 for species A and 1 for species B, but relative change is the same for both. If this is the purpose of this transformation, then Hellinger transformed data could be used also in other ordination methods, e.g. CA or CCA; then, it is already not “transformation-based ordination” in the sense of point (a) above.
+
+
+The Hellinger transformation is often used in microbial ecology to account for the compositional nature of microbiome data, where the total number of reads is variable between samples. This transformation can help to reduce the impact of the total sequencing depth on the results and to avoid spurious correlations.
+
+**NA Problem**: if the environmental variables contain missing values and such matrix is used in constrained ordination as explanatory, the samples containing (even just one) missing values will be removed from analysis. If you have many environmental variables and each has some missing values (in the worst case each variable missing for different samples), such data with many holes may mean that the final analysis is based on rather reduced number of samples. Therefore check for missing values in environmental variables before conducting constrained ordination (RDA, CCA).
+
+
+You can mention that the constrained ordination was tested by permutation test, Monte Carlo permutation test, or ANOVA-like permutation test (the last one is perhaps the least common). But do not say simply that the significance of constrained ordination was tested by ANOVA, this would be misleading.
+
+*Beta diversity* is a concept fundamentally different from alpha or gamma diversity, and itself represents a complex topic. Beta diversity can be seen as species turnover (directional exchange of species among pair of samples or along spatial, temporal or environmental gradient) or as variation in species composition (non-directional description of heterogeneity in species composition within the dataset)(e.g. Anderson et al. 2011).  Alternatively (sensu Jurasinsky et al. 2009), beta diversity can be seen as either differential diversity (considering differences in species composition) or as proportional diversity (proportion of species on a regional and local level, gamma vs alpha diversity).
+
+
 ```{r main libraries, results='hide'}
+set.seed(123456)
+
 library(tidyverse)
+library(labdsv)
 library(dplyr)
 library(FactoMineR)
 library(car)
@@ -35,25 +60,47 @@ library(ggpubr)
 library(BiocManager)
 #BiocManager::install("microbiome")
 library(microbiome)  
+
+setwd("E:/Sophie_pipeline/obitools")
 ```
 
 # ITS - Leaf
 
 ```{r}
 #only leaf
-load("./resources/Metabarlist_natura_clean_ITS2.Rdata")
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2.Rdata")
 leaf <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "leaf")
-save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf.Rdata")
+#save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf.Rdata")
 ```
 
 ## alpha diversity
 
+### rarefaction
+```{r}
+raremax <- min(apply(leaf$reads, 1, sum)) #6317 sums all the fungi found in one sample. this is the min number of fungi found in a sample. could also use rowsums() instead of apply()
 
+rownames(leaf$reads)[which( rowSums(leaf$reads) == raremax )] #"DRYER_natura_leaf_ITS2_16_NA", c'est un Sym.glo
+
+
+#Rarefy BCI species matrix to the minimum number of individuals in any plot
+#and plot the relationship between observed and rarefied counts (plus add 1-1 line)
+
+leaf.its.rare <- rarefy(leaf$reads, raremax) #these a re the rarefied counts.
+leaf.its.richness <- specnumber(x = leaf$reads)
+plot(leaf.its.richness, leaf.its.rare, xlab = "Observed No. of Species", ylab = "Rarefied No. of Species")
+abline(0, 1)
+
+#put all together
+rarecurve(leaf$reads, step = 20, sample = raremax, col = "blue", cex = 0.6)
+```
+
+
+### vegan
 ```{r}
 library(vegan)
 
-dim(leaf$reads) #species = OTUS et sites = mes plantules/samples 
+dim(leaf$reads) #species = OTUS et sites = mes plantules/samples 71 x 10099
 
 Richness <- specnumber(x = leaf$reads)
 H <- vegan::diversity(x = leaf$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
@@ -124,9 +171,326 @@ plot_invS
 r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
 r
 
-ggsave("./results/ITS_leaf_a_diversity.jpeg", r)
+#ggsave("./results/ITS_leaf_a_diversity.jpeg", r)
 
 ```
+
+###Hill
+
+
+*Simpson’s diversity* puts more weight on common species and evenness than **Shannon’s diversity** which will be more sensitive to species richness, hence the presence of rare species. One is not better than the other and often it is good practice to report values for each as they add different layers of information. These are often plotted in diveristy profile curves and using the transformed values richness, shannon, & simpson using Hill numbers.
+
+
+Hill numbers have become, in many cases, the preferred method to report diversity. Hill numbers are a convenient algebraic transformation of richness and other diversity indices (e.g. Simpsons and Shannon), such that values for diversity can be intuitively interpreted as “equivalent numbers of species”. 
+
+```{r}
+# calculates richness
+hill_richness <- hillR::hill_taxa(leaf$reads,q=0)
+
+# calculates effective shannon's diversity (i.e. exp(shan))
+hill_shannon <- hillR::hill_taxa(leaf$reads,q=1)
+hill_shannon2 <- log(hill_shannon) #to find the same as vegan package, same as H
+
+#calculated inverse simpson's diversity (i.e. 1/(1-simp))
+hill_invsimpson <- hillR::hill_taxa(leaf$reads,q=2) #same as D2
+
+#Plot
+
+df <- hill_richness %>% 
+  enframe() %>%
+  rename(hill_richness = value, 
+         sample_id = name)
+
+df2 <- left_join(leaf$samples, df)
+
+df <- hill_shannon %>% 
+  enframe() %>%
+  rename(hill_shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+df <- hill_invsimpson %>% 
+  enframe() %>%
+  rename(hill_invsimpson = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_data <- df2 %>%
+  dplyr::select(name, hill_richness, hill_shannon, hill_invsimpson) %>%
+  melt() %>%
+  ggplot(aes(variable, value))+
+  geom_boxplot()+
+  labs(x = "q", y = "Effective number of species")+
+  ggtitle("ITS - Leaf - hill's number") +
+  scale_x_discrete(labels = c("0", "1", "2"))+
+   facet_grid(cols=vars(name))+
+  theme_classic()
+
+ggsave("./results/ITS_leaf_a_diversity_hill.jpeg", plot_data)
+```
+
+## beta diversity
+
+How similar in microbial composition each sample is to other samples of different types, or between sample variability.
+
+Code inspiration from : https://gist.github.com/padpadpadpad/4201dc530b18a8d36363d37286edfc7c
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(leaf$samples$name), type = "median")
+mod
+
+# This are all the average distance for each species, we can see they are practically the same:
+# Average distance to median:
+#          Eperua_falcata   Iryanthera_hostmannii 
+#                  0.5135                  0.5042 
+#        Jacaranda_copaia Pterocarpus_officinalis 
+#                  0.5070                  0.5187 
+#   Symphonia_globulifera     Tachigali_melinonii 
+#                  0.4951                  0.5008 
+#     Virola_surinamensis 
+#                  0.4755
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions ####
+# getting distances from betadisper() object
+betadisper_distances <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(distances = unlist(model$distances))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting eigenvalues out of betadisper() object
+betadisper_eigenvalue <- function(model){
+  temp <- data.frame(eig = unlist(model$eig))
+  temp$PCoA <- row.names(temp)
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting the eigenvectors out of a betadisper() object
+betadisper_eigenvector <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(unlist(model$vectors))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# get centroids
+betadisper_centroids <- function(model){
+  temp <- data.frame(unlist(model$centroids))
+  temp$group <- row.names(temp)
+  temp <- dplyr::select(temp, group, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# betadisper data
+get_betadisper_data <- function(model){
+  temp <- list(distances = betadisper_distances(model),
+               eigenvalue = betadisper_eigenvalue(model),
+               eigenvector = betadisper_eigenvector(model),
+               centroids = betadisper_centroids(model))
+  return(temp)
+}
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_its_leaf <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_bw(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 [18.6%]') +
+  xlab('PCoA Axis 2 [11.8%]') +
+  theme(legend.position = c(0.9, 0.3)) +
+   ggtitle("Beta diversity - Leaf ITS")
+
+ggsave("./results/ITS_leaf_beta_diversity.jpeg", pcoa_beta_its_leaf)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal()+
+  annotate(geom="text", x=1, y=0.65, label="Permutation test ",
+              color="black")+
+   annotate(geom="text", x=2, y=0.64, label="for homogeneity of multivariate dispersions",
+              color="black")+
+   annotate(geom="text", x=1, y=0.63, label="p-value = 0.76",
+              color="black")+
+   theme(axis.text.x=element_text(angle = 60, hjust = 0,vjust=0.5)) +
+  ggtitle("Beta diversity - Leaf ITS")
+p
+ggsave("./results/ITS_leaf_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.79. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+
+################################################
+
+#NMDS
+
+leaf_ITS_nmds <- metaMDS(decostand(leaf$reads, method = "hellinger"),
+    dist = "bray",
+    autotransform = FALSE, expand = FALSE)
+
+leaf_ITS_nmds #fair stress 0.1823848 
+
+stressplot(leaf_ITS_nmds) #draws a Shepard plot and the fit of the NMDS as a stepped line. `stressplot()` also displays two correlation statistics for the goodness of the fit. The correlation based on stress is $R^2=1-S^2$, and the ``fit-based'' correlation is the correlation between the fitted values, $\theta(d)$ and the original distances, $d$, which is the correlation between the stepped line and the points.
+
+#check dimensionality k
+k_vec <- 1:10
+stress <- numeric(length(k_vec))
+leaf_dij <-metaMDSdist(leaf$reads)
+set.seed(25)
+for(i in seq_along(k_vec)) {
+    sol <- metaMDSiter(leaf_dij, k = i,
+                       trace = TRUE)
+    stress[i] <- sol$stress
+}
+
+plot(k_vec, stress, type = "b", ylab = "Stress",
+     xlab = "Dimensions")
+
+#adding supplementary variables to explain the data
+ordipointlabel(birds_nmds)
+
+env <- leaf$samples[, 12] %>% enframe()
+ev_nmds <- envfit(leaf_ITS_nmds ~ name, data = env) # envfit is designed to calculate regression of “supplementary” (not “explanatory”) variables on ordination axes of unconstrained ordination, and test the significance of this regression by permutation test.
+ev_nmds
+
+plot(ev_nmds, add = TRUE)
+
+ordisurf(birds_nmds ~ Altit, data = birds_env, add = TRUE)
+```
+
+
+
+```{r}
+## Import packages and data
+library("phyloseq")
+library("ggplot2")
+
+data("GlobalPatterns")
+
+## Create function
+beta_boxplot <- function(physeq, method = "bray", group) {
+
+  # physeq: phyloseq-class object
+  # method: beta-diversity metric. Default "bray", i.e., Bray-Curtis dissimilarity 
+  # group: factorial variable to group
+
+  ## Packages
+  require("phyloseq") # v.1.30.0
+  require("ggplot2") # v.3.3.2
+
+  ## Identify the correspondence: group and samples
+  group2samp <- list() # list to save the correspondence between group <--> samples
+  group_list <- get_variable(sample_data(physeq), group) # list of group elements
+  for (groups in levels(group_list)) { # loop over the no. of group levels
+    target_group <- which(group_list == groups) # vct pos of the curr group variable 
+    group2samp[[ groups ]] <- sample_names(physeq)[target_group] # matching samples: based on vct pos
+  }  
+
+  ## Calculate beta-diversity
+  beta_div_dist <- distance(physeq = physeq, method = method)
+  beta_div_dist <- as(beta_div_dist, "matrix")
+
+  ## Coerce distance mtx into a tidy data frame by group
+  dist_df <- data.frame() # save results in df 
+  counter <- 1 
+  for (groups in names(group2samp)) { # loop over group fct levels 
+    sub_dist <- beta_div_dist[ group2samp[[groups]], group2samp[[groups]] ] # subset dist mtx to curr samples
+    #print(sub_dist)
+    no_samp_col <- ncol(sub_dist) # n cols: curr sub dist
+    no_samp_row <- nrow(sub_dist) # n rows: curr sub dist
+    for ( cols in seq(no_samp_col) ) { # loop over cols: curr sub_dist
+      if ( cols > 1 ) {
+        for ( rows in seq((cols-1)) ) { # loop over rows: curr sub_dist 
+          ## Save results
+          dist_df[ counter, "sample_pair" ] <- paste0( colnames(sub_dist)[cols], "-",  
+                                                       rownames(sub_dist)[rows] ) # sample pair
+          dist_df[ counter, "group" ] <- groups # group  
+          dist_df[ counter, "beta_div_method" ] <- method # method
+          dist_df[ counter, "beta_div_value" ] <- sub_dist[rows, cols] # beta-diversity for the sample pair     
+         counter = counter + 1
+        }
+      }
+    }
+  }
+
+  ## Create a ggplot2 boxplot
+  plot_boxplot <- ggplot(data = dist_df, aes(x = group, y = beta_div_value, color = group)) + 
+    geom_boxplot(outlier.shape=NA) +
+    geom_jitter() + 
+    theme_bw() + 
+    xlab(group) + ylab(method) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+  ## Save df and boxplot into a list 
+  list_Out <- list("data" = dist_df, "plot" = plot_boxplot) 
+
+  return(list_Out)
+}
+
+## Test function 
+beta_boxplot_result <- beta_boxplot(physeq = GlobalPatterns, method = "bray", group = "SampleType")
+
+## Data
+beta_boxplot_result$data
+
+## Plot
+beta_boxplot_result$plot
+```
+
+
 
 # ITS - Root
 
@@ -223,125 +587,370 @@ ggsave("./results/ITS_root_a_diversity.jpeg", r)
 
 ## beta diversity
 
- how similar in microbial composition each sample is to other samples of different types, or between sample variability.
 
 ```{r}
 # calculate Bray-Curtis distance using the vegan package
 #Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
-dist_bc <- as.matrix(vegdist(root$reads, method = "bray"))
 
-essai <- dist_bc %>% 
-  enframe()
-library(MASS)
-set.seed(123456)
+dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
 
-birds_nmds <- metaMDS(decostand(root$reads, method = "hellinger"),
-    dist = "bray",
-    autotransform = FALSE, expand = FALSE, )
 
-birds_nmds
+mod <- betadisper(d = dis.hell.bray, group = as.factor(root$samples$name), type = "median")
+mod
 
-stressplot(birds_nmds)
+# #Average distance to median:
+#          Eperua_falcata   Iryanthera_hostmannii        Jacaranda_copaia 
+#                  0.6004                  0.5682                  0.5742 
+# Pterocarpus_officinalis   Symphonia_globulifera     Tachigali_melinonii 
+#                  0.5832                  0.5599                  0.4294 
+#     Virola_surinamensis 
+#                  0.5645 
 
-#check dimensionality k
-k_vec <- 1:10
-stress <- numeric(length(k_vec))
-birds_dij <-metaMDSdist(root$reads)
-set.seed(25)
-for(i in seq_along(k_vec)) {
-    sol <- metaMDSiter(birds_dij, k = i,
-                       trace = TRUE)
-    stress[i] <- sol$stress
-}
 
-plot(k_vec, stress, type = "b", ylab = "Stress",
-     xlab = "Dimensions")
 
-#adding supplementary variables to explain the data
-ordipointlabel(birds_nmds)
-ev_nmds <- envfit(birds_nmds ~ name, data = root$samples)
-ev_nmds
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
 
-plot(ev_nmds, add = TRUE)
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
 
-ordisurf(birds_nmds ~ Altit, data = birds_env, add = TRUE)
+# functions #### before load them
+# getting distances from betadisper() object
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_its_root <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_bw(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 [16.3%]') +
+  xlab('PCoA Axis 2 [14.8%]') +
+  theme(legend.position = c(0.9, 0.3)) +
+   ggtitle("Beta diversity - Root ITS")
+
+ggsave("./results/ITS_root_beta_diversity.jpeg", pcoa_beta_its_root)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal()+
+  annotate(geom="text", x=1, y=0.69, label="Permutation test ",
+              color="black")+
+   annotate(geom="text", x=2, y=0.68, label="for homogeneity of multivariate dispersions",
+              color="black")+
+   annotate(geom="text", x=1, y=0.67, label="p-value = 0.01",
+              color="black")+
+   theme(axis.text.x=element_text(angle = 60, hjust = 0,vjust=0.5)) +
+  ggtitle("Beta diversity - Leaf ITS")
+p
+ggsave("./results/ITS_root_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.01 **. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
 ```
 
+#ITS - Leaf & Root 
+
+```{r}
+#data
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2.Rdata")
+```
+
+## alpha diversity
+```{r}
+#using vegan
+
+Richness <- specnumber(x = natura_clean$reads)
+H <- vegan::diversity(x = natura_clean$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = natura_clean$reads, index = "simpson")
+D2 <- vegan::diversity(x = natura_clean$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = natura_clean$reads)) #Pielou’s evenness 
+
+#Rényi entropy & Hill's numbers
+
+R <- renyi(natura_clean$reads, scales = 2)
+head(R)
+N2 <- renyi(natura_clean$reads, scales = 2, hill = TRUE)  # other way to calculte inverse simpson
+head(N2)
+k <- sample(nrow(natura_clean$reads), 6)
+R <- renyi(natura_clean$reads[k,])
+plot(R)
+
+
+#Differences in species richness across samples
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+df2 <- left_join(natura_clean$samples, df)
+
+plot_richness <- ggplot(df2, aes(x = name, y = Richness, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Species richness - ITS natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_richness
+
+#looking at shannon
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_shannon <- ggplot(df2, aes(x = name, y = Shannon, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Shannon - ITS natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+plot_shannon
+
+#look at invsimpson
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
+  geom_boxplot() +
+  labs(title = "InvSimpson - ITS natura_clean") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_invS
+
+
+#look at the same time Richness, shannon and inv_simpson per species
+
+r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+r
+
+
+
+#plot leaf and root on same plot
+Richness <- df2 %>%
+  mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Richness, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+
+Shannon <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+InvSimpson <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = invSimpson, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom") 
+
+all_alpha <- ggarrange(Richness, Shannon, InvSimpson, labels = c('A', 'B', 'C'), ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+all_alpha
+
+all_alpha <- annotate_figure(all_alpha, top = text_grob("ITS - Alpha-diversity indices", 
+               color = "black", face = "bold", size = 20))
+
+#ggsave("./results/ITS_all_alpha_diversity.jpeg", all_alpha)
+
+
+
+```
+
+## beta diversity
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(natura_clean$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(natura_clean$samples$organ), type = "median")
+mod
+
+
+# Average distance to median:
+#   leaf   root 
+# 0.5312 0.6074
+
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# Calculate the sum of all eigenvalues
+eigen_sum <- sum(mod$eig)
+
+# Calculate the percentage of variation explained by each axis
+PCoA1_percentage <- mod$eig[1] / eigen_sum * 100
+PCoA2_percentage <- mod$eig[2] / eigen_sum * 100
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions #### before load them
+# getting distances from betadisper() object
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_its_all <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_minimal(base_size = 20, base_family = 'Helvetica') +
+  ylab('PCoA Axis 1') +
+  xlab('PCoA Axis 2') +
+  theme(legend.position = 'bottom') +
+   ggtitle("Beta diversity - ITS")+
+  # Set the colors for the two groups
+  scale_color_manual(values = c(leaf = "#6bbf59",
+    root = "#E79F02"))
+
+ggsave("./results/ITS_all_beta_diversity.jpeg", pcoa_beta_its_all)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 20)+
+  annotate(geom="text", x=1, y=0.69, label="Permutation test",
+              color="black")+
+   annotate(geom="text", x=1, y=0.68, label="p-value =  0.01 **",
+              color="black")+
+   theme(legend.position = "none", axis.title.x =element_blank())  +
+  scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02"))
+ # ggtitle("Beta diversity - ITS")
+p
+#ggsave("./results/ITS_all_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.01 **. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+
+
+#Combine the two graphs
+
+Beta_all <- ggarrange( pcoa_beta_its_all, p, ncol = 2, nrow = 1, widths = c(1, 0.5))
+Beta_all 
+ggsave("./results/ITS_all_beta_diversity.jpeg", Beta_all)
+```
+
+
+
+
+# Plant Traits
+
+## PCNM
+
+Method that aims at identifying spatial patterns. 
+
++ It builds a matrix a euclidena distances among sampling points, using a pairwise geographic distance matrix between sampling sites. You need the Xutm and Yutm columns.
++ Truncate this distance matrix (with a threshold) so as to retain only the distance values corresponding to the nearest neighbors.
++ Replace the deleted values by an arbitrary large distance value: now the distance matrix represents the distances among the samples that are close and considers the rest of points as 'far away'
++ Compute the PCoA (no correction for negative eigenvalues)
++ Retain the positive eigenvalues. These are the spatial explanatory variables to use in multiple regression or canonical ordination. 
+
+Overall: The method basically consists of diagonalizing a spatial weighting matrix, then extracting the eigenvectors that maximize the Moran's index of autocorrelation. 
 
 
 ```{r}
-## Import packages and data
-library("phyloseq")
-library("ggplot2")
 
-data("GlobalPatterns")
+library(devtools)
+#install_github("sdray/adespatial")
+library("adespatial")
 
-## Create function
-beta_boxplot <- function(physeq, method = "bray", group) {
+tmp <- leaf$samples
+#compute mem
+mem<-dbmem(tmp[,15:16],MEM.autocor = "non-null")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem, nrepet = 999) # 5 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp[,15:16]) - 1), col="red")
 
-  # physeq: phyloseq-class object
-  # method: beta-diversity metric. Default "bray", i.e., Bray-Curtis dissimilarity 
-  # group: factorial variable to group
+tmp<-data_frame(tmp,mem[,c(1:4)])
 
-  ## Packages
-  require("phyloseq") # v.1.30.0
-  require("ggplot2") # v.3.3.2
 
-  ## Identify the correspondence: group and samples
-  group2samp <- list() # list to save the correspondence between group <--> samples
-  group_list <- get_variable(sample_data(physeq), group) # list of group elements
-  for (groups in levels(group_list)) { # loop over the no. of group levels
-    target_group <- which(group_list == groups) # vct pos of the curr group variable 
-    group2samp[[ groups ]] <- sample_names(physeq)[target_group] # matching samples: based on vct pos
-  }  
-
-  ## Calculate beta-diversity
-  beta_div_dist <- distance(physeq = physeq, method = method)
-  beta_div_dist <- as(beta_div_dist, "matrix")
-
-  ## Coerce distance mtx into a tidy data frame by group
-  dist_df <- data.frame() # save results in df 
-  counter <- 1 
-  for (groups in names(group2samp)) { # loop over group fct levels 
-    sub_dist <- beta_div_dist[ group2samp[[groups]], group2samp[[groups]] ] # subset dist mtx to curr samples
-    #print(sub_dist)
-    no_samp_col <- ncol(sub_dist) # n cols: curr sub dist
-    no_samp_row <- nrow(sub_dist) # n rows: curr sub dist
-    for ( cols in seq(no_samp_col) ) { # loop over cols: curr sub_dist
-      if ( cols > 1 ) {
-        for ( rows in seq((cols-1)) ) { # loop over rows: curr sub_dist 
-          ## Save results
-          dist_df[ counter, "sample_pair" ] <- paste0( colnames(sub_dist)[cols], "-",  
-                                                       rownames(sub_dist)[rows] ) # sample pair
-          dist_df[ counter, "group" ] <- groups # group  
-          dist_df[ counter, "beta_div_method" ] <- method # method
-          dist_df[ counter, "beta_div_value" ] <- sub_dist[rows, cols] # beta-diversity for the sample pair     
-         counter = counter + 1
-        }
-      }
-    }
-  }
-
-  ## Create a ggplot2 boxplot
-  plot_boxplot <- ggplot(data = dist_df, aes(x = group, y = beta_div_value, color = group)) + 
-    geom_boxplot(outlier.shape=NA) +
-    geom_jitter() + 
-    theme_bw() + 
-    xlab(group) + ylab(method) +
-    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-
-  ## Save df and boxplot into a list 
-  list_Out <- list("data" = dist_df, "plot" = plot_boxplot) 
-
-  return(list_Out)
-}
-
-## Test function 
-beta_boxplot_result <- beta_boxplot(physeq = GlobalPatterns, method = "bray", group = "SampleType")
-
-## Data
-beta_boxplot_result$data
-
-## Plot
-beta_boxplot_result$plot
 ```
+
+
+
+

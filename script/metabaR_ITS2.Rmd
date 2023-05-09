@@ -774,6 +774,8 @@ ggsave(filename = "PCoA_organ_pres.jpeg", plot = pres_organ, width = 10, height 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(eval = FALSE, include = FALSE)
 #no need for below, we have all the info with the NewMetabarlist_clean
+save(natura_clean, file = "./results/Metabarlist_natura_clean_ITS2.Rdata")
+
 #both organs
 write.csv(natura_clean$motus,"motus_without_contaminant_ITS2.csv")
 write.csv(t(natura_clean$motus),"transposed_motus_without_contaminant_ITS2.csv")
@@ -784,8 +786,10 @@ write.csv(natura_clean$pcrs,"pcrs_without_contaminant_ITS2.csv")
 write.csv(t(natura_clean$pcrs),"transposed_pcrs_without_contaminant_ITS2.csv")
 
 #only leaves
-leaf_metabar_clean <- subset_metabarlist(natura_clean, table = "samples",
+leaf_ITS_clean <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "leaf")
+save(leaf_ITS_clean, file = "./results/Metabarlist_leaf_clean_ITS2.Rdata")
+
 write.csv(leaf_metabar_clean$motus,"leaf_motus_without_contaminant_ITS2.csv")
 write.csv(t(leaf_metabar_clean$motus),"leaf_transposed_motus_without_contaminant_ITS2.csv")
 write.csv(leaf_metabar_clean$reads,"leaf_reads_without_contaminant_ITS2.csv")
@@ -795,8 +799,9 @@ write.csv(leaf_metabar_clean$pcrs,"leaf_pcrs_without_contaminant_ITS2.csv")
 write.csv(t(leaf_metabar_clean$pcrs),"leaf_transposed_pcrs_without_contaminant_ITS2.csv")
 
 #only roots
-root_metabar_clean <- subset_metabarlist(natura_clean, table = "samples",
+root_ITS_clean <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "root")
+save(root_ITS_clean, file = "./results/Metabarlist_root_clean_ITS2.Rdata")
 write.csv(root_metabar_clean$motus,"root_motus_without_contaminant_ITS2.csv")
 write.csv(t(root_metabar_clean$motus),"root_transposed_motus_without_contaminant_ITS2.csv")
 write.csv(root_metabar_clean$reads,"root_reads_without_contaminant_ITS2.csv")
@@ -947,4 +952,83 @@ ggplot(tmp, aes(x=Group.1, y=value, fill=variable)) +
     ggtitle("Fungi - order")
 ```
 
+
+#get final summary
+```{r}
+load("./results/Metabarlist_natura_clean_ITS2.Rdata")
+summary_metabarlist(natura_clean)
+
+#LEAF
+load("./results/Metabarlist_leaf_clean_ITS2.Rdata")
+summary_metabarlist(leaf_ITS_clean)
+
+leaf_ITS_clean$samples$nb_reads <- rowSums(leaf_ITS_clean$reads) #get number of reads per sample
+leaf_ITS_clean$samples$nb_motus <- rowSums(leaf_ITS_clean$reads>0) #get number of OTUs per sample
+
+#to get number of motus and reads
+leaf2 <- melt(leaf_ITS_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+leaf3 <- leaf2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (leaf) per species
+leaf <- leaf2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_leaf <- left_join(leaf3, leaf) 
+table_leaf$organ <- "leaf"
+
+#-------------------------------------------------------------------
+#ROOT
+load("./results/Metabarlist_root_clean_ITS2.Rdata") #name: root_metabar_clean
+summary_metabarlist(root_ITS_clean)
+
+
+root_ITS_clean$samples$nb_reads <- rowSums(root_ITS_clean$reads) #get number of reads per sample
+root_ITS_clean$samples$nb_motus <- rowSums(root_ITS_clean$reads>0) #get number of OTUs per sample
+
+#to get number of motus and reads
+root2 <- melt(root_ITS_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+root3 <- root2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (root) per species
+root <- root2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_root <- left_join(root3, root) 
+table_root$organ <- "root"
+
+
+#join root and leaf table
+
+table <- rbind(table_root, table_leaf) %>%
+  relocate(organ, .before =name) %>%
+  relocate(n, .before = mean_nb_reads) %>%
+  mutate(name = gsub("_", " ", name)) %>%
+  rename(Species = name) 
+  
+
+table %>%
+  dplyr::select(-organ) %>% #remove it otherwise redundant
+  kbl(caption = "Curated data for ITS2 : number of replicates, mean number of reads and OTUs per species.", escape = FALSE) %>% #title
+  pack_rows(index = c("root" = 7, "leaf" = 7)) %>% #to group by organ
+  row_spec(0, bold = TRUE) %>% #first row is in bold
+  column_spec(1, italic = T) %>% #make species name in italic
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  save_kable(file = "./results/summary_ITS2.png") #make it bigger add zoom = 5 in save_kable
+
+
+```
 

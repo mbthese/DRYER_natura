@@ -1,0 +1,957 @@
+---
+title: "Analyses"
+author: "Marion Boisseaux"
+date: "2023-04-21"
+output: html_document
+---
+```{r main libraries, results='hide'}
+library(tidyverse)
+library(dplyr)
+library(FactoMineR)
+library(car)
+library(missMDA)
+library(metabaR)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(MASS)
+library(cowplot)
+library(nlme)
+library(MuMIn)
+library(multcomp)
+library(ggpubr)
+library(ade4)
+library(hillR)
+library(adespatial)
+library(reldist)
+library(bipartite)
+library(vegan)
+library(scales)
+library(phyloseq)
+library(reshape2)
+library(ggpubr)
+
+library(BiocManager)
+#BiocManager::install("microbiome")
+library(microbiome)  
+setwd("E:/Sophie_pipeline/obitools")
+```
+
+# 16S - Leaf
+
+```{r}
+#only leaves
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+#save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf_traits.Rdata")
+```
+
+## alpha diversity
+
+
+```{r}
+library(vegan)
+
+dim(leaf$reads) #species = OTUS et sites = mes plantules/samples 
+
+Richness <- specnumber(x = leaf$reads)
+H <- vegan::diversity(x = leaf$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = leaf$reads, index = "simpson")
+D2 <- vegan::diversity(x = leaf$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = leaf$reads)) #Pielou’s evenness 
+
+#Rényi entropy & Hill's numbers
+
+R <- renyi(leaf$reads, scales = 2)
+head(R)
+N2 <- renyi(leaf$reads, scales = 2, hill = TRUE)  # other way to calculte inverse simpson
+head(N2)
+k <- sample(nrow(leaf$reads), 6)
+R <- renyi(leaf$reads[k,])
+plot(R)
+
+
+#Differences in species richness across samples
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+df2 <- left_join(leaf$samples, df)
+
+plot_richness <- ggplot(df2, aes(x = name, y = Richness, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Species richness - 16S leaves")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_richness
+
+#looking at shannon
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_shannon <- ggplot(df2, aes(x = name, y = Shannon, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Shannon - 16S leaves")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+plot_shannon
+
+#look at invsimpson
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
+  geom_boxplot() +
+  labs(title = "InvSimpson - 16S leaves") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_invS
+
+
+#look at the same time Richness, shannon and inv_simpson per species
+
+p <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+p
+
+ggsave("./results/16S_leaves_a_diversity.jpeg")
+
+#utiliser les nombres de hill
+richness_hill <- hill_taxa(leaf$reads,q=0) # species richness
+head(richness_hill)
+
+shannon_hill <- hill_taxa(leaf$reads,q=1, exp(1), MARGIN = 1) #Shannnon, default is exp(1), the base of log.
+head(shannon_hill)
+head(H) #it's different from previous, because of different base calcultation
+
+inv_simpson_hill <- hill_taxa(leaf$reads,q=2) #inv simpson
+head(inv_simpson_hill)
+head(D2) #same
+
+
+```
+
+
+Alpha diversity calculations were performed based on the rarefied OTU table to compare the diversity among samples at a given level of sampling effort (Hughes and Hellmann, 2005). The OTU table was rarefied to 1535 reads by ‘single rarefaction’ QIIME script as this number was the lowest number of reads for all samples. The average sequence reads from three sterilized controls were used as a baseline that was subtracted from the reads of all samples. The OTU table after this subtraction was used for further statistical analysis. (https://www.nature.com/articles/ismej2016108)
+
+## beta diversity
+
+How similar in microbial composition each sample is to other samples of different types, or between sample variability.
+
+Code inspiration from : https://gist.github.com/padpadpadpad/4201dc530b18a8d36363d37286edfc7c
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(leaf$samples$name), type = "median")
+mod
+
+# This are all the average distance for each species, we can see they are practically the same:
+# Average distance to median:
+#          Eperua_falcata   Iryanthera_hostmannii 
+#                  0.5135                  0.5042 
+#        Jacaranda_copaia Pterocarpus_officinalis 
+#                  0.5070                  0.5187 
+#   Symphonia_globulifera     Tachigali_melinonii 
+#                  0.4951                  0.5008 
+#     Virola_surinamensis 
+#                  0.4755
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions ####
+# getting distances from betadisper() object
+betadisper_distances <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(distances = unlist(model$distances))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting eigenvalues out of betadisper() object
+betadisper_eigenvalue <- function(model){
+  temp <- data.frame(eig = unlist(model$eig))
+  temp$PCoA <- row.names(temp)
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting the eigenvectors out of a betadisper() object
+betadisper_eigenvector <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(unlist(model$vectors))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# get centroids
+betadisper_centroids <- function(model){
+  temp <- data.frame(unlist(model$centroids))
+  temp$group <- row.names(temp)
+  temp <- dplyr::select(temp, group, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# betadisper data
+get_betadisper_data <- function(model){
+  temp <- list(distances = betadisper_distances(model),
+               eigenvalue = betadisper_eigenvalue(model),
+               eigenvector = betadisper_eigenvector(model),
+               centroids = betadisper_centroids(model))
+  return(temp)
+}
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_16S_leaf <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_bw(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 [13.6%]') +
+  xlab('PCoA Axis 2 [9.4%]') +
+  theme(legend.position = c(0.9, 0.3)) +
+   ggtitle("Beta diversity - Leaf 16S")
+
+ggsave("./results/16S_leaf_beta_diversity.jpeg", pcoa_beta_16S_leaf)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal()+
+  annotate(geom="text", x=1, y=0.65, label="Permutation test ",
+              color="black")+
+   annotate(geom="text", x=2, y=0.64, label="for homogeneity of multivariate dispersions",
+              color="black")+
+   annotate(geom="text", x=1, y=0.63, label="p-value =  0.01 **",
+              color="black")+
+   theme(axis.text.x=element_text(angle = 60, hjust = 0,vjust=0.5)) +
+  ggtitle("Beta diversity - Leaf 16S")
+p
+ggsave("./results/16S_leaf_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.79. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+
+################################################
+
+#NMDS
+
+leaf_16S_nmds <- metaMDS(decostand(leaf$reads, method = "hellinger"),
+    dist = "bray",
+    autotransform = FALSE, expand = FALSE)
+
+leaf_16S_nmds #fair stress 0.1823848 
+
+stressplot(leaf_16S_nmds) #draws a Shepard plot and the fit of the NMDS as a stepped line. `stressplot()` also displays two correlation statistics for the goodness of the fit. The correlation based on stress is $R^2=1-S^2$, and the ``fit-based'' correlation is the correlation between the fitted values, $\theta(d)$ and the original distances, $d$, which is the correlation between the stepped line and the points.
+
+#check dimensionality k
+k_vec <- 1:10
+stress <- numeric(length(k_vec))
+leaf_dij <-metaMDSdist(leaf$reads)
+set.seed(25)
+for(i in seq_along(k_vec)) {
+    sol <- metaMDSiter(leaf_dij, k = i,
+                       trace = TRUE)
+    stress[i] <- sol$stress
+}
+
+plot(k_vec, stress, type = "b", ylab = "Stress",
+     xlab = "Dimensions")
+
+#adding supplementary variables to explain the data
+ordipointlabel(leaf_16S_nmds)
+
+env <- leaf$samples[, 12] %>% enframe()
+ev_nmds <- envfit(leaf_ITS_nmds ~ name, data = env) # envfit is designed to calculate regression of “supplementary” (not “explanatory”) variables on ordination axes of unconstrained ordination, and test the significance of this regression by permutation test.
+ev_nmds
+
+plot(ev_nmds, add = TRUE)
+
+ordisurf(leaf_16S_nmds ~ name, data = env, add = TRUE)
+```
+
+
+
+```{r}
+## Import packages and data
+library("phyloseq")
+library("ggplot2")
+
+data("GlobalPatterns")
+
+## Create function
+beta_boxplot <- function(physeq, method = "bray", group) {
+
+  # physeq: phyloseq-class object
+  # method: beta-diversity metric. Default "bray", i.e., Bray-Curtis dissimilarity 
+  # group: factorial variable to group
+
+  ## Packages
+  require("phyloseq") # v.1.30.0
+  require("ggplot2") # v.3.3.2
+
+  ## Identify the correspondence: group and samples
+  group2samp <- list() # list to save the correspondence between group <--> samples
+  group_list <- get_variable(sample_data(physeq), group) # list of group elements
+  for (groups in levels(group_list)) { # loop over the no. of group levels
+    target_group <- which(group_list == groups) # vct pos of the curr group variable 
+    group2samp[[ groups ]] <- sample_names(physeq)[target_group] # matching samples: based on vct pos
+  }  
+
+  ## Calculate beta-diversity
+  beta_div_dist <- distance(physeq = physeq, method = method)
+  beta_div_dist <- as(beta_div_dist, "matrix")
+
+  ## Coerce distance mtx into a tidy data frame by group
+  dist_df <- data.frame() # save results in df 
+  counter <- 1 
+  for (groups in names(group2samp)) { # loop over group fct levels 
+    sub_dist <- beta_div_dist[ group2samp[[groups]], group2samp[[groups]] ] # subset dist mtx to curr samples
+    #print(sub_dist)
+    no_samp_col <- ncol(sub_dist) # n cols: curr sub dist
+    no_samp_row <- nrow(sub_dist) # n rows: curr sub dist
+    for ( cols in seq(no_samp_col) ) { # loop over cols: curr sub_dist
+      if ( cols > 1 ) {
+        for ( rows in seq((cols-1)) ) { # loop over rows: curr sub_dist 
+          ## Save results
+          dist_df[ counter, "sample_pair" ] <- paste0( colnames(sub_dist)[cols], "-",  
+                                                       rownames(sub_dist)[rows] ) # sample pair
+          dist_df[ counter, "group" ] <- groups # group  
+          dist_df[ counter, "beta_div_method" ] <- method # method
+          dist_df[ counter, "beta_div_value" ] <- sub_dist[rows, cols] # beta-diversity for the sample pair     
+         counter = counter + 1
+        }
+      }
+    }
+  }
+
+  ## Create a ggplot2 boxplot
+  plot_boxplot <- ggplot(data = dist_df, aes(x = group, y = beta_div_value, color = group)) + 
+    geom_boxplot(outlier.shape=NA) +
+    geom_jitter() + 
+    theme_bw() + 
+    xlab(group) + ylab(method) +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+  ## Save df and boxplot into a list 
+  list_Out <- list("data" = dist_df, "plot" = plot_boxplot) 
+
+  return(list_Out)
+}
+
+## Test function 
+beta_boxplot_result <- beta_boxplot(physeq = GlobalPatterns, method = "bray", group = "SampleType")
+
+## Data
+beta_boxplot_result$data
+
+## Plot
+beta_boxplot_result$plot
+```
+
+
+
+##PCNM
+
+```{r pcnm}
+library(devtools)
+#install_github("sdray/adespatial")
+library("adespatial")
+
+tmp <- leaf$samples
+#compute mem
+mem<-dbmem(tmp[,15:16],MEM.autocor = "non-null")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem, nrepet = 999) # 5 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp[,15:16]) - 1), col="red")
+
+tmp<-data_frame(tmp,mem[,c(1:4)])
+
+#c'est du brouillon
+
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+temp <- left_join(leaf$samples, df)
+
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+temp <- left_join(temp, df)
+
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+temp <- left_join(temp, df)
+temp<-data_frame(temp,mem[,c(1:4)])
+
+#Canocnical correspondence analyse
+leaf_endo_16S <- leaf$reads 
+env <- temp[, 14:45 ] %>% dplyr::select(-Xutm, -Yutm,-NbLeaflets, -MajVLA, -Ptlp, -Richness, -Shannon, -invSimpson)
+
+# r exploring NA
+#check the nas
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(env,2,pMiss)
+
+library(VIM)
+aggr_plot <- aggr(env, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(env), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+#imputing th emissing data for all traits 
+library(mice)
+tempData <- mice(env,m=5,maxit=50,meth='pmm',seed=500)
+summary(tempData)
+completedData <- complete(tempData,1)
+#no imputation of SD
+
+completedData <- complete(tempData,1) #1 is choosing dataset 1 out of the 5
+
+leaf.16S.cca <- cca(decostand(leaf_endo_16S, method = "hellinger") ~ ., data = completedData %>% dplyr::select(-Name))
+leaf.16S.cca
+
+scores(leaf.16S.cca, display = "bp")
+plot(leaf.16S.cca) #tripod
+
+#compare with unconstrained
+leaf.16S.ca <- cca(decostand(leaf_endo_16S, method = "hellinger"))
+leaf.16S.ca
+
+layout(matrix(1:2, ncol =2))
+plot(leaf.16S.ca)
+plot(leaf.16S.cca)
+
+layout(1)
+plot(leaf.16S.cca, scaling = 1) #here we focus on the sites (weighted by the species' score rather than the species weighted by the site score)
+
+cor( completedData %>% dplyr::select(-Name)) # output not shown in handout
+vif.cca(leaf.16S.cca)
+set.seed(42)
+anova(leaf.16S.cca) #check the significance of the full CCA model we have fit
+
+mod0 <- cca(decostand(leaf_endo_16S, method = "hellinger") ~ 1, data =completedData %>% dplyr::select(-Name))
+mod0
+
+mod <- step(leaf.16S.cca, scope = list(lower = formula(mod0),
+                         upper = formula(leaf.16S.cca)), test = "perm")
+```
+
+
+##Phyloseq format
+
+```{r}
+# Format for phyloseq
+otumat <- as.matrix(leaf$reads)
+taxmat <- as.matrix(leaf$motus)
+sammat <- left_join(leaf$samples,leaf$pcrs)
+OTU <- otu_table(otumat, taxa_are_rows = F)
+TAX <- tax_table(taxmat)
+SAM <- sample_data(sammat)
+rownames(SAM) <- SAM$sample_id
+physeq <- phyloseq(OTU,TAX,SAM)
+
+print(physeq)
+
+# check if any OTUs are not present in any samples
+any(taxa_sums(physeq) == 0)
+```
+
+
+The answer is FALSE, there are no OTUs that are not found in any samples. It is usually TRUE in the case when data is subset to remove some samples. OTUs unique to those sample are not removed along with the samples. Therefore, it is important to check this everytime the phyloseq object is filtered for samples using subset_samples function.
+
+
+```{r}
+rank_names(physeq) #we check the taxonomic rank information 
+# no. of OTUs in original 
+ntaxa(physeq) # 4301 OTUS for the 16S leaves
+#total number of reads in the dataset
+reads_per_OTU <- taxa_sums(physeq)
+print(sum(reads_per_OTU)) # we have a total of  1034557 reads for the 16S leaves
+
+#let’s check the distribution of the OTUs in our data set.
+
+# We make a data table with information on the OTUs
+physeq.dt.taxa = data.table::data.table(tax_table(physeq),OTUabundance = taxa_sums(physeq),OTU = taxa_names(physeq))
+physeq.dt.tax.plot <- ggplot(physeq.dt.taxa, aes(OTUabundance)) + geom_histogram() + ggtitle("Histogram of OTU (unique sequence) counts") + theme_bw()
+print(physeq.dt.tax.plot)
+plot.zoom <- ggplot(physeq.dt.taxa, aes(OTUabundance)) + geom_histogram() + ggtitle("Histogram of Total Counts") + xlim(0, 1000) + ylim (0,50) + theme_bw() #proportion of reads is repeated less than 250x
+print(plot.zoom)
+plot.zoom <- ggplot(physeq.dt.taxa, aes(OTUabundance)) + geom_histogram(breaks=seq(0, 20, by =1)) + ggtitle("Histogram of Total Counts") + theme_bw()
+print(plot.zoom) #If we zoom in even further, we see that a lot of OTUs contain less than 20 reads. In real case senario, if your sequencing and OTU identification did not go well you might see a skewed distribution and may indicate the need for further filtering and processing, which might be the case here. 
+
+#a small fraction of the OTUs consist of less than 10 reads, so how much OTUs are this and how many reads do they contain?
+print(length(reads_per_OTU[reads_per_OTU < 10])) # there are 2694 OTus that contain less than 10 reads
+print(sum(reads_per_OTU[reads_per_OTU < 10])) #more importantly, these OTUs contain 9349 reads
+print((sum(reads_per_OTU[reads_per_OTU < 10])/sum(reads_per_OTU))*100) ## which is 0.90% of the data, very bad (!!)
+
+#To put this into context; out of the 4301 OTUs, a 2694 OTUs contain less than 10 reads, which is: 62 %
+print((2694/4301)*100)
+
+# Check for singletons
+
+physeq.dt.taxa[(OTUabundance <= 0), .N] # no singletons
+
+physeq.dt.taxa[(OTUabundance <= 2), .N] #  1262 doubletons
+
+```
+
+--> très peu de reads par OTUS !!!
+
+```{r plot OTU distribution}
+ps1.cumsum = physeq.dt.taxa[, .N, by = OTUabundance]
+
+ps1.cumsum[, CumSum := cumsum(N)]
+# Define the plot
+ps1.cumsum.plot = ggplot(ps1.cumsum, aes(OTUabundance, CumSum)) + 
+  geom_point() +
+  xlab("Filtering Threshold, Minimum Total Counts") +
+  ylab("OTUs Filtered") +
+  ggtitle("OTUs that would be filtered vs. the minimum count threshold") + theme_bw()
+
+print(ps1.cumsum.plot)
+
+#Zoom in on the OTUs that contain <100 reads.
+#This will give an idea about the loss of OTUs when you use a certain count threshold.
+ps1.cumsum.plot.zoom <- ps1.cumsum.plot + xlim(0, 100) + theme_bw() #this will give an idea of the potential loss in otus you might expect in our dataset.
+print(ps1.cumsum.plot.zoom) 
+```
+
+
+```{r variance and CV}
+Variance.plot <- qplot(log10(apply(otu_table(physeq), 1, var)), xlab = "log10(variance)", main = "Variance in OTUs")
+print(Variance.plot)
+
+
+```
+
+# Non - Phylogenetic diversity
+
+```{r}
+# if you want to specify specific colors
+my_colors <- c("#CBD588", "#5F7FC7", "orange","#DA5724", "#508578", "#CD9BCD", "#AD6F3B", "#673770","#D14285", "#652926", "#C84248", "#8569D5", "#5E738F","#D1A33D", "#8A7C64", "#599861", "steelblue" )
+
+#install.packages("picante",repos="http://R-Forge.R-project.org") 
+library(picante)
+
+#Non-Phylogenetic metrics
+
+#plot the diversity using different metrics
+p <- plot_richness(physeq, "name", measures = c("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher"))
+p <- p + geom_boxplot(aes(fill = "name")) + scale_fill_manual(values = c("#CBD588", "#5F7FC7", "orange","#DA5724", "#508578"))
+print(p)
+
+ggsave("./results/16S_leaf_DV_indices.jpg", p, height = 4, width = 10)
+
+# We can check whether there  are any significant differences in alpha diversity between the sample groups we are interested in.
+ps1.adiv <- estimate_richness(physeq, measures = c("Chao1", "Shannon", "Observed", "InvSimpson"))
+ps1.metadata <- as(sample_data(physeq), "data.frame")
+head(ps1.metadata)
+#We add the columns with the alpha-div indices from ps1.adiv to ps1.adiv.metadata where all info including metadata is now available.
+ps1.metadata$Observed <- ps1.adiv$Observed 
+ps1.metadata$Shannon <- ps1.adiv$Shannon
+ps1.metadata$InvSimpson <- ps1.adiv$InvSimpson
+
+colnames(ps1.metadata) #check the last three coloumns will be the alpha diversity indices
+```
+
+
+
+```{r beta div - 16S leaf}
+β = S/α¯ − 1 
+
+Mean_Richness <- df2 %>% group_by(name) %>% summarize(mean= round(mean(Richness)))
+
+beta_ef <- (ncol(leaf$reads) / Mean_Richness$mean[Mean_Richness$name == "Eperua_falcata"]) -1
+
+
+#Subtraction of one means that β = 0 when there are no excess species or no heterogeneity between sites.
+
+beta <- ncol(leaf$reads)/mean(specnumber(leaf$reads)) - 1
+
+
+
+```
+
+
+# Alpha diversity indices
+
+```{r Alpha diversity, eval=FALSE, echo=FALSE}
+
+#rarefaction curves
+alpha_bac<-metabaR::hill_rarefaction(leaf,nboot=20,nsteps=10)
+gghill_rarefaction(alpha_bac)
+
+
+
+# Using hill
+alpha_bac_suite<-hill_taxa(leaf$reads,q=1)
+leaf$samples$Shannon<-alpha_bac_suite #pas du tout le meme qu'avant, c'est l'exp de ce qu'il y a vait avant.
+
+alpha_bac_endo<-hill_taxa(bac_final_samples_endo2$reads,q=1)
+tmp_bac_leaf_endo2$Shannon<-alpha_bac_endo
+
+##endo beta-div - (Hellinger, Horn)
+#t<-data.frame(t(bac_final_samples_endo$reads))
+#bac_dist_endo<-vegdist(decostand(t,method="hellinger"),"bray")
+
+#t<-data.frame(t(bac_final_samples_endo2$reads))
+#bac_dist_endo2<-vegdist(decostand(t,method="hellinger"),"bray")
+
+
+#rarefaction curves bacteria
+a_b<-specaccum(bac_final_samples$reads,method="rarefaction")
+a_b.df<-data.frame(a_b$sites,a_b$richness)
+g_ab<-ggplot(a_b.df,aes(x=a_b.sites,y=a_b.richness))+
+  geom_line()+
+  labs(x="Sites",y="Number of reads", title="Bacteria")+
+  ylim(0,10000)+
+  xlim(0,100)
+```
+
+
+#Relative contribution of position (pcnm) and leaf traits
+```{r alpha_div}
+# ENDOPHYTES
+# first model with all mem and binom as random effects 
+#test normality shannon
+
+ggqqplot(tmp_natura_clean$Shannon)
+ggdensity(tmp_natura_clean$Shannon)
+shapiro.test(tmp_natura_clean$Shannon) # non normal p-value<0.05
+# Shapiro-Wilk normality test
+# 
+# data:  tmp_natura_clean$Shannon
+# W = 0.99175, p-value = 0.6319
+
+#stepAIC
+env4 <- tmp_natura_clean[,c(17:37)] 
+env4$NbLeaves <- as.numeric(env4$NbLeaves)
+env4$StomatalDensity <- as.numeric(env4$StomatalDensity)
+
+env4 <- env4%>%
+     mutate(RootW=replace_na(RootW, mean(RootW, na.rm=TRUE)),
+            ShootW=replace_na(ShootW, mean(ShootW, na.rm=TRUE)),
+            LeavesW=replace_na(LeavesW, mean(LeavesW, na.rm=TRUE)),
+            RootShoot=replace_na(RootShoot, mean(RootShoot, na.rm=TRUE)),
+            LA_Total=replace_na(LA_Total, mean(LA_Total, na.rm=TRUE)),
+            Height=replace_na(Height, mean(Height, na.rm=TRUE)),
+            StemDiameter=replace_na(StemDiameter, mean(StemDiameter, na.rm=TRUE)),
+            NbLeaves=replace_na(NbLeaves, mean(NbLeaves, na.rm=TRUE)), 
+            NbLeaflets=replace_na(NbLeaflets, mean(NbLeaflets, na.rm=TRUE)),
+            FW=replace_na(FW, mean(FW, na.rm=TRUE)),
+            SW=replace_na(SW, mean(SW, na.rm=TRUE)),
+            DW=replace_na(DW, mean(DW, na.rm=TRUE)),
+            LA=replace_na(LA, mean(LA, na.rm=TRUE)),
+            LSWC=replace_na(LSWC, mean(LSWC, na.rm=TRUE)),
+            Ptlp=replace_na(Ptlp, mean(Ptlp, na.rm=TRUE)),
+            fvfm=replace_na(fvfm, mean(fvfm, na.rm=TRUE)),
+            StomatalDensity=replace_na(StomatalDensity, mean(StomatalDensity, na.rm=TRUE)),
+            SRL=replace_na(SRL, mean(SRL, na.rm=TRUE)),
+            RootDiameter=replace_na( RootDiameter, mean( RootDiameter, na.rm=TRUE)),
+            LT=replace_na(LT, mean(LT, na.rm=TRUE)))
+env4<-data.frame(tmp_natura_clean[,c(4,5,8:12,39:44)],env4)
+
+#correlation between leaf traits
+corr_bac<-cor(env4[,-c(1:7)],method="spearman")
+p.mat=cor.mtest(env4[,-c(1:7)],conf.level=0.95)
+corrplot(corr_bac,type="upper",order="hclust",p.mat=p.mat$p,insig="blank")
+
+#check collinearity with VIF (<5)
+bac_lm<-lm(formula = Shannon~., data = env4[,-c(1:7)]) #erreur
+vif(bac_lm) # remove RootW, ShhotW, LeavesW, RootShoot, RootLength_Total, LA_Total, Height, NbLeaves, NbLeaflets, FW, SW, DW
+bac_lm<-lm(norm_Shannon~., env4[,-c(13,16,17,18)]) 
+
+env4 <- env4 %>%
+  dplyr::select(-RootW, -ShootW, -LeavesW, -RootShoot, -RootLength_Total, -LA_Total, -Height, -NbLeaves, -NbLeaflets, -FW, -SW, -DW)
+#on refait
+bac_lm<-lm(formula = Shannon~., data = env4[,-c(1:7)]) #erreur
+vif(bac_lm) #OK
+
+bac_lm.step<-stepAIC(bac_lm,direction="both")
+vif(bac_lm.step) # <10
+summary(bac_lm.step)
+
+```
+
+
+```{r beta_div}
+# ENDOPHYTES
+
+#test with ordi2step
+# compute morista-horn dissimilarity matrix ith HillR packahe to stay in Hill number format , q==1 
+bac_dist_endo<-hill_taxa_parti_pairwise(natura_clean$reads,q=1,output="matrix", pairs = "full")
+bac_endo_rda.vasc.0 <- dbrda (bac_dist_endo$TD_beta ~ 1, data =  env4[,-c(1:7)]) # model containing only species matrix and intercept
+bac_endo_rda.vasc.all <- dbrda (bac_dist_endo$TD_beta ~ ., data =  env4[,-c(1:7)]) # model including all variables from matrix chem1 (the dot after tilda (~) means "include all from data")
+#check collinearity with VIF.cca (<10)no variables above 10
+vif.cca (bac_endo_rda.vasc.all) 
+bac_endo_sel.osR2 <- ordiR2step (bac_endo_rda.vasc.0, scope = formula (bac_endo_rda.vasc.all), direction = c("both", "backward", "forward"))
+vif.cca (bac_endo_sel.osR2) #does not work
+bac_endo_sel.osR2$anova
+
+#NMDS for figures
+#BACTERIA
+bac_endo_nmds<-vegan::metaMDS(bac_dist_endo$TD_beta,k=2,try=25,plot=FALSE)
+
+bac_endo_nmds_df<-as.data.frame(bac_endo_nmds$points)
+bac_endo_nmds_df$organ<-natura_clean$samples$organ
+bac_endo_nmds_df$name<-natura_clean$samples$name
+bac_endo_nmds_df$Ptlp<-natura_clean$samples$Ptlp
+
+#bac_endo_nmds_df$Position<-factor(bac_final_samples_endo$samples$position,levels=c("H","M","B","S"))
+
+bac_endo_nmds_df_tlp_data <- bac_endo_nmds_df %>% na.omit()%>% filter(organ == 'leaf')
+  
+ggplot(bac_endo_nmds_df_tlp_data,aes(x=MDS1,y=MDS2))+
+  geom_point(size=2,aes(colour=Ptlp, shape = name))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),legend.position =c(0.2,0.3),axis.text = element_blank(),legend.text = element_text(size=10),legend.title = element_text(size=10))+
+
+
+
+
+```
+
+
+# 16S - Root
+
+```{r}
+#only roots
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+#save(root, file = "./results/Metabarlist_natura_clean_16S_root_traits.Rdata")
+```
+
+## alpha diversity
+
+
+```{r}
+library(vegan)
+
+dim(root$reads) #species = OTUS et sites = mes plantules/samples 
+
+Richness <- specnumber(x = root$reads)
+H <- vegan::diversity(x = root$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = root$reads, index = "simpson")
+D2 <- vegan::diversity(x = root$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = root$reads)) #Pielou’s evenness 
+
+#Rényi entropy & Hill's numbers
+
+R <- renyi(root$reads, scales = 2)
+head(R)
+N2 <- renyi(root$reads, scales = 2, hill = TRUE)  # other way to calculte inverse simpson
+head(N2)
+k <- sample(nrow(root$reads), 6)
+R <- renyi(root$reads[k,])
+plot(R)
+
+
+#Differences in species richness across samples
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+df2 <- left_join(root$samples, df)
+
+plot_richness <- ggplot(df2, aes(x = name, y = Richness, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Species richness - 16S root")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_richness
+
+#looking at shannon
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_shannon <- ggplot(df2, aes(x = name, y = Shannon, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Shannon - 16S root")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+plot_shannon
+
+#look at invsimpson
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
+  geom_boxplot() +
+  labs(title = "InvSimpson - 16S root") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_invS
+
+
+#look at the same time Richness, shannon and inv_simpson per species
+
+r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+r
+
+ggsave("./results/16S_root_a_diversity.jpeg", r)
+
+```
+
+## beta diversity
+
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(root$samples$name), type = "median")
+mod
+
+# # #Average distance to median:
+#          Eperua_falcata   Iryanthera_hostmannii        Jacaranda_copaia 
+#                  0.3586                  0.3822                  0.3055 
+# Pterocarpus_officinalis   Symphonia_globulifera     Tachigali_melinonii 
+#                  0.3869                  0.3465                  0.4071 
+#     Virola_surinamensis 
+#                  0.3395 
+
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions #### before load them
+# getting distances from betadisper() object
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_16S_root <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_bw(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 [16.4%]') +
+  xlab('PCoA Axis 2 [7.6%]') +
+  theme(legend.position = c(0.9, 0.3)) +
+   ggtitle("Beta diversity - Root 16S")
+
+ggsave("./results/16S_root_beta_diversity.jpeg", pcoa_beta_16S_root)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal()+
+  annotate(geom="text", x=1, y=0.69, label="Permutation test ",
+              color="black")+
+   annotate(geom="text", x=2, y=0.68, label="for homogeneity of multivariate dispersions",
+              color="black")+
+   annotate(geom="text", x=1, y=0.67, label="p-value = 0.03 *",
+              color="black")+
+   theme(axis.text.x=element_text(angle = 60, hjust = 0,vjust=0.5)) +
+  ggtitle("Beta diversity - Root 16S")
+p
+ggsave("./results/16S_root_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.01 **. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+```
+

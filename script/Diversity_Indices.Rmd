@@ -1,0 +1,1668 @@
+---
+title: "Diversity indices"
+author: "Marion Boisseaux"
+date: "2023-05-03"
+output: html_document
+---
+
+Diversity indices
+
+#Notes
+
+The *Morisita-Horn* measure is based on the squared differences of the relative abundances of each species in the two assemblages. Because of this squared distance, the Morisita-Horn index is dominated by the most abundant species, while the relatively rare species have little effect (even if there are many of them). 
+
+*Hellinger transformation* has therefore two types of use: (a) to calculate transformation-based ordination, or (b) to standardize species composition data:
+
+(a) : linear ordination methods (PCA, RDA) are based on Euclidean distances, which are sensitive to double-zero problem. If the species composition data are first Hellinger transformed, and then used in linear ordination methods, the combination of Hellinger transformation + Euclidean distance means that the distance used by these methods is Hellinger distance, which is not sensitive to double-zero problem. Here, the reason to transform the data is to simply avoid influence of double-zeros in the ordination analysis.
+
+
+(b) : Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them. This could be useful if we are not interested in changes of absolute species abundances, but relative abundances. E.g. if species A has abundance 30 in sample 1 and 20 in sample 2, and species B has abundance 3 in sample 1 and 2 in sample 2, the absolute change is 10 for species A and 1 for species B, but relative change is the same for both. If this is the purpose of this transformation, then Hellinger transformed data could be used also in other ordination methods, e.g. CA or CCA; then, it is already not “transformation-based ordination” in the sense of point (a) above.
+
+
+The Hellinger transformation is often used in microbial ecology to account for the compositional nature of microbiome data, where the total number of reads is variable between samples. This transformation can help to reduce the impact of the total sequencing depth on the results and to avoid spurious correlations.
+
+**NA Problem**: if the environmental variables contain missing values and such matrix is used in constrained ordination as explanatory, the samples containing (even just one) missing values will be removed from analysis. If you have many environmental variables and each has some missing values (in the worst case each variable missing for different samples), such data with many holes may mean that the final analysis is based on rather reduced number of samples. Therefore check for missing values in environmental variables before conducting constrained ordination (RDA, CCA).
+
+
+You can mention that the constrained ordination was tested by permutation test, Monte Carlo permutation test, or ANOVA-like permutation test (the last one is perhaps the least common). But do not say simply that the significance of constrained ordination was tested by ANOVA, this would be misleading.
+
+*Beta diversity* is a concept fundamentally different from alpha or gamma diversity, and itself represents a complex topic. Beta diversity can be seen as species turnover (directional exchange of species among pair of samples or along spatial, temporal or environmental gradient) or as variation in species composition (non-directional description of heterogeneity in species composition within the dataset)(e.g. Anderson et al. 2011).  Alternatively (sensu Jurasinsky et al. 2009), beta diversity can be seen as either differential diversity (considering differences in species composition) or as proportional diversity (proportion of species on a regional and local level, gamma vs alpha diversity).
+
+## Analyses notes
+
+**RDA**
+Regress each (Hellinger-transformed) y(i) on X, find y_hat(i), and do PCA on Y_hat
+
+Scaling 1 vs. scaling 2 (default in R)
+
+For species and sites, interpretation same as in PCA
+
+For explanatory variables and their relationships with response variables, subtle but important differences regarding angles, positions, centroids
+
+**Partial RDA**
+e.g., envtopo vs. envchem
+(spechem.physio2 <- rda(spe.hel ~ pH + dur + pho + nit + amm + oxy + dbo + Condition(alt + pen + deb), data=env)) anova(spechem.physio2, step=1000) anova(spechem.physio2, step=1000, by="axis")
+
+Forward selection of explanatory variables
+Use VIFs to look for severe collinearity
+
+`forward.sel()` in packfor - Blanchet et al (2008) corrections built in
+
+`ordistep()` in vegan - allows use of factors
+
+**Variation partioning**
+Steps to compute R2adj (Peres-Neto et al. 2006) - `varpart()` in vegan
+
+**db-RDA** (Legendre and Anderson 1999)
+Allows use of various dissimilarity measures, as in PCoA
+
+Run PCoA on Y and then RDA on principal coordinates
+
+`capscale()` in vegan
+
+**CCA**
+Canonical counterpart of CA; otherwise similar to RDA
+
+Rare species overemphasized
+
+
+```{r main libraries, results='hide'}
+set.seed(123456)
+
+library(tidyverse)
+library(labdsv)
+library(dplyr)
+library(FactoMineR)
+library(car)
+library(missMDA)
+library(metabaR)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(MASS)
+library(cowplot)
+library(nlme)
+library(MuMIn)
+library(multcomp)
+library(ggpubr)
+library(ade4)
+library(hillR)
+library(adespatial)
+library(reldist)
+library(bipartite)
+library(vegan)
+library(scales)
+library(phyloseq)
+library(reshape2)
+library(ggpubr)
+
+library(BiocManager)
+#BiocManager::install("microbiome")
+library(microbiome)  
+
+# Enable the r-universe repo
+options(repos = c(
+    fawda123 = 'https://fawda123.r-universe.dev',
+    CRAN = 'https://cloud.r-project.org'))
+
+# Install ggord
+#install.packages('ggord')
+library(ggord) #simple package for creating ordination plots with ggplot2. Marcus W. Beck (2017). ggord: Ordination Plots with ggplot2. R package version 1.0.0. https://zenodo.org/badge/latestdoi/35334615
+
+setwd("E:/Sophie_pipeline/obitools")
+```
+
+# Traits
+
+## trait data
+
+```{r}
+#get authorization 
+googlesheets4::gs4_auth(scopes = "https://www.googleapis.com/auth/spreadsheets.readonly" )
+
+traits <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "traits") 
+#add gmin
+
+gmin <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "gmin") %>% dplyr::select(Code, gmin)
+
+traits <- traits %>% left_join(gmin, by = "Code")
+
+traits <- traits %>% rename(code = Code)
+traits$code <- as.character(traits$code)
+
+```
+
+
+## impute trait data
+
+Exploring where Nas are located in the dataset and imputing traits except SD.
+
+```{r exploring NA}
+
+#check the nas
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(traits,2,pMiss)
+
+#we see that SD is almost 30% missing values, the rest is below a threshold of 5%
+library(VIM)
+aggr_plot <- aggr(traits, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(traits), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+# 
+# Variables sorted by number of missings: 
+#          Variable      Count
+#            MajVLA 0.75000000
+#        NbLeaflets 0.54166667
+#               TLP 0.22222222
+#              gmin 0.06944444
+#   StomatalDensity 0.04166667
+#      RootDiameter 0.01388889
+
+#imputing th emissing data for all traits except MajVLA, Nb_leaflets, TLP
+library(mice)
+tempData <- mice(traits %>% dplyr::select(-MajVLA, -NbLeaflets, - TLP),m=5,maxit=50,meth='pmm',seed=500)
+summary(tempData)
+completedData <- complete(tempData,1) #1 is choosing dataset 1 out of the 5
+
+A <- left_join(completedData, traits %>% dplyr::select(code, MajVLA, NbLeaflets,  TLP),  by = "code")
+
+write.csv(A, "./resources/DRYER_natura_imputed_traits.csv", row.names = FALSE)
+
+#inspecting data after imputation
+densityplot(tempData)
+tempData$imp$gmin
+
+```
+
+Only   gmin 6.9 % nas, StomatalDensity 4,2 % na, and  RootDiameter 1,4 % nas were imputed. TLP 22 % too much and MajVLA 75 % too much and Nb_leaflets not imputed because it does not make any sense.
+
+
+
+## 16S
+```{r}
+#microbio 16S clean
+load("./resources/Metabarlist_natura_clean_16S.Rdata")
+
+#traits imputed 
+traits <- read_csv("resources/DRYER_natura_imputed_traits.csv")
+
+
+natura_clean$samples <- left_join(natura_clean$samples, traits, by = "code")
+
+row.names(natura_clean$samples) <- natura_clean$samples$sample_id
+
+#with traits
+save(natura_clean, file = "./results/Metabarlist_natura_clean_16S_traits.Rdata")
+
+```
+##ITS
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2.Rdata")
+
+#get authorization 
+googlesheets4::gs4_auth(scopes = "https://www.googleapis.com/auth/spreadsheets.readonly" )
+
+traits <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "traits") 
+#add gmin
+
+gmin <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "gmin") %>% dplyr::select(Code, gmin)
+
+traits <- traits %>% left_join(gmin, by = "Code")
+
+traits <- traits %>% rename(code = Code)
+traits$code <- as.character(traits$code)
+
+natura_clean$samples <- left_join(natura_clean$samples, traits, by = "code")
+
+row.names(natura_clean$samples) <- natura_clean$samples$sample_id
+
+#with traits
+save(natura_clean, file = "./results/Metabarlist_natura_clean_ITS2_traits.Rdata")
+
+```
+
+
+#ITS - Leaf & Root 
+
+```{r}
+#data
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2.Rdata")
+```
+
+## alpha diversity
+```{r}
+#using vegan
+
+Richness <- specnumber(x = natura_clean$reads)
+H <- vegan::diversity(x = natura_clean$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = natura_clean$reads, index = "simpson")
+D2 <- vegan::diversity(x = natura_clean$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = natura_clean$reads)) #Pielou’s evenness 
+
+#Rényi entropy & Hill's numbers
+
+R <- renyi(natura_clean$reads, scales = 2)
+head(R)
+N2 <- renyi(natura_clean$reads, scales = 2, hill = TRUE)  # other way to calculte inverse simpson
+head(N2)
+k <- sample(nrow(natura_clean$reads), 6)
+R <- renyi(natura_clean$reads[k,])
+plot(R)
+
+
+#Differences in species richness across samples
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+df2 <- left_join(natura_clean$samples, df)
+
+plot_richness <- ggplot(df2, aes(x = name, y = Richness, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Species richness - ITS natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_richness
+
+#looking at shannon
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_shannon <- ggplot(df2, aes(x = name, y = Shannon, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Shannon - ITS natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+plot_shannon
+
+#look at invsimpson
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
+  geom_boxplot() +
+  labs(title = "InvSimpson - ITS natura_clean") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_invS
+
+
+#look at the same time Richness, shannon and inv_simpson per species
+
+r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+r
+
+
+
+#plot leaf and root on same plot
+Richness <- df2 %>%
+  mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Richness, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+
+Shannon <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+InvSimpson <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = invSimpson, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom") 
+
+all_alpha <- ggarrange(Richness, Shannon, InvSimpson, labels = c('A', 'B', 'C'), ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+all_alpha
+
+all_alpha <- annotate_figure(all_alpha, top = text_grob("ITS - Alpha-diversity indices", 
+               color = "black", face = "bold", size = 20))
+
+#ggsave("./results/ITS_all_alpha_diversity.jpeg", all_alpha)
+
+```
+
+## beta diversity
+
+How similar in microbial composition each sample is to other samples of different types, or between sample variability.
+
+Code inspiration from : https://gist.github.com/padpadpadpad/4201dc530b18a8d36363d37286edfc7c
+
+### functions
+```{r}
+# functions ####
+# getting distances from betadisper() object
+betadisper_distances <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(distances = unlist(model$distances))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting eigenvalues out of betadisper() object
+betadisper_eigenvalue <- function(model){
+  temp <- data.frame(eig = unlist(model$eig))
+  temp$PCoA <- row.names(temp)
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# getting the eigenvectors out of a betadisper() object
+betadisper_eigenvector <- function(model){
+  temp <- data.frame(group = model$group)
+  temp2 <- data.frame(unlist(model$vectors))
+  temp2$sample <- row.names(temp2)
+  temp <- cbind(temp, temp2)
+  temp <- dplyr::select(temp, group, sample, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# get centroids
+betadisper_centroids <- function(model){
+  temp <- data.frame(unlist(model$centroids))
+  temp$group <- row.names(temp)
+  temp <- dplyr::select(temp, group, dplyr::everything())
+  row.names(temp) <- NULL
+  return(temp)
+}
+
+# betadisper data
+get_betadisper_data <- function(model){
+  temp <- list(distances = betadisper_distances(model),
+               eigenvalue = betadisper_eigenvalue(model),
+               eigenvector = betadisper_eigenvector(model),
+               centroids = betadisper_centroids(model))
+  return(temp)
+}
+
+```
+
+
+### calcul
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(natura_clean$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(natura_clean$samples$organ), type = "median")
+mod
+
+
+# Average distance to median:
+#   leaf   root 
+# 0.5312 0.6074
+
+# tests if centroid distances are significantly different from each other
+anova(mod) #yes 1.7e-15 ***
+
+TukeyHSD(mod)
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# Dimension (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod$eig[1]/ sum(mod$eig) * 100 #14.3 
+
+# Dimension (i.e., Axis 2 (PCOA2))
+Axis2.percent <-  mod$eig[2]/ sum(mod$eig) * 100 #4.335 
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions #### before load them
+# getting distances from betadisper() object
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_its_all <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_minimal(base_size = 20, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 4.3%') +
+  xlab('PCoA Axis 1 - 14.3%') +
+  theme(legend.position = 'none') + #remove legend
+   ggtitle("Beta diversity - ITS")+
+   # Set the colors for the two groups
+  scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02")) +
+  # Add text labels for the two groups
+  geom_text(aes(x = -0.25, y = 0.2, label = "leaf"), color = "#6bbf59", size = 6) +
+  geom_text(aes(x = 0.1, y = 0.2, label = "root"), color = "#E79F02", size = 6)
+pcoa_beta_its_all
+#ggsave("./results/ITS_all_beta_diversity.jpeg", pcoa_beta_its_all)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 20)+
+  annotate(geom="text", x=1, y=0.69, label="Permutation test",
+              color="black", size = 4)+
+   annotate(geom="text", x=1.06, y=0.67, label="p-value =  0.01 **",
+              color="black", size = 4)+
+   theme(legend.position = "none", axis.title.x =element_blank())  +
+  scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02"))
+ # ggtitle("Beta diversity - ITS")
+p
+#ggsave("./results/ITS_all_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.01 **. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+
+
+#Combine the two graphs
+
+Beta_all <- ggarrange( pcoa_beta_its_all, p, ncol = 2, nrow = 1, widths = c(1, 0.5), labels = c("A", "B"))
+Beta_all 
+#ggsave("./results/ITS_all_beta_diversity.jpeg", Beta_all)
+
+#subset leaf and repeat same analysis---------
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+leaf.dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") 
+
+mod.leaf <- betadisper(d = leaf.dis.hell.bray, group = as.factor(leaf$samples$name), type = "median")
+mod.leaf
+# tests if centroid distances are significantly different from each other
+anova(mod.leaf) #no  0.77
+leaf_tuket <- TukeyHSD(mod.leaf) #aucune paires de significatives
+plot(mod.leaf)
+
+# Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod.leaf$eig[1]/ sum(mod.leaf$eig) * 100 #9.23 
+Axis2.percent <-  mod.leaf$eig[2]/ sum(mod.leaf$eig) * 100 #5.853  
+#have a better plot
+betadisper_dat <- get_betadisper_data(mod.leaf)
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+betadisper_lines <- betadisper_lines %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+betadisper_dat$centroids <- betadisper_dat$centroids %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+
+betadisper_dat$eigenvector <- betadisper_dat$eigenvector %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+
+betadisper_dat$chull <- betadisper_dat$chull %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+pcoa_beta_leaf <-  ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, group =  group, col = group), betadisper_dat$chull) +
+ # geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = group, col = group), betadisper_lines) +
+  theme_minimal(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 5.9%') +
+  xlab('PCoA Axis 1 - 9.2%') +
+  ggtitle("Leaf") +
+  theme(plot.title = element_text(color = "#6bbf59", face = "bold"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 14)) +
+  labs(col = "Species")
+pcoa_beta_leaf  
+
+
+# extract the legend as a text grob for later 
+legend_grob <- get_legend( pcoa_beta_leaf  )
+
+# draw the legend as a standalone plot for later
+legend_plot <- gridExtra::arrangeGrob(legend_grob, ncol = 1)
+
+# Draw a boxplot of the distances to centroid for each group
+boxplot(mod.leaf) 
+df <- data.frame(Distance_to_centroid=mod.leaf$distances,Group=mod.leaf$group)
+groups <- mod.leaf$group
+## Permutation test for F
+set.seed(12345)
+r.leaf <- permutest(mod.leaf, pairwise = TRUE, permutations = 99)
+leaf<- df %>%
+  mutate(name = gsub("_", " ", Group)) %>%
+  separate(name, c("Genus", "Species")) %>%
+  mutate(Group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  ggplot(aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 12)+
+ # annotate(geom="text", x=1, y=0.69, label="Permutation test",color="black")+
+   annotate(geom="text", x=4, y=0.68, label="p-value=0.82",
+              color="black")+
+  theme(legend.position = "none", axis.title.x =element_blank(),axis.title.y =element_blank(), axis.text.x = element_blank())
+leaf
+
+#Combine the two graphs
+Beta_leaf <- ggarrange(pcoa_beta_leaf , leaf, ncol = 2, nrow = 1, widths = c(1, 0.5), common.legend = TRUE, legend = "none", labels = c("C", "D"))
+Beta_leaf 
+
+#subset root and repeat same analysis---------
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#root_sin_TM <- subset_metabarlist(root, table = "samples",indices = natura_clean$samples$name != "Tachigali_melinonii")
+
+root.dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray")
+mod.root <- betadisper(d = root.dis.hell.bray, group = as.factor(root$samples$name), type = "median")
+mod.root
+# tests if centroid distances are significantly different from each other
+anova(mod.root) #yes 0.0038 ** suelement tachigali
+root_tuket <- TukeyHSD(mod.root) #aucune paires de significatives
+plot(mod.root)
+
+# Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod.root$eig[1]/ sum(mod.root$eig) * 100 #7.602 
+Axis2.percent <-  mod.root$eig[2]/ sum(mod.root$eig) * 100 #6.871  
+#have a better plot
+betadisper_dat <- get_betadisper_data(mod.root)
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+pcoa_beta_root <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  #geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_minimal(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 6.9%') +
+  xlab('PCoA Axis 1 - 7.6%') +
+  theme(legend.position = 'bottom') +
+   ggtitle("Root")+
+    theme(plot.title = element_text(color = "#E79F02", face = "bold"))
+ pcoa_beta_root 
+
+# Draw a boxplot of the distances to centroid for each group
+boxplot(mod.root) 
+df <- data.frame(Distance_to_centroid=mod.root$distances,Group=mod.root$group)
+groups <- mod.root$group
+## Permutation test for F
+set.seed(12345)
+r.root <- permutest(mod.root, pairwise = TRUE, permutations = 99)
+root<- df %>%
+  mutate(name = gsub("_", " ", Group)) %>%
+  separate(name, c("Genus", "Species")) %>%
+  mutate(Group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  ggplot(aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 12)+
+ # annotate(geom="text", x=1, y=0.69, label="Permutation test", color="black")+
+   annotate(geom="text", x=4, y=0.68, label="p-value=0.01**",
+              color="black")+
+   theme(legend.position = "none", axis.title.x =element_blank(),axis.title.y =element_blank(), axis.text.x = element_blank())
+  
+root
+
+#Combine the two graphs
+Beta_root <- ggarrange(pcoa_beta_root , root, ncol = 2, nrow = 1, widths = c(1, 0.5), common.legend = TRUE, legend = "none", labels= c("E", "F"))
+Beta_root 
+#ggsave("./results/ITS_all_beta_diversity.jpeg", Beta_all)
+
+
+#Combine all graphs
+
+Beta <- ggarrange(Beta_all, ggarrange(Beta_leaf, Beta_root, ncol = 2, nrow = 1), legend_plot, nrow = 3, heights = c(2,1, 0.5))
+Beta
+ggsave("./results/Beta_ITS.jpeg", Beta)
+```
+
+
+
+# 16S - Leaf & Root
+
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+
+#save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf_traits.Rdata")
+```
+
+
+## alpha diversity
+```{r}
+#using vegan
+
+Richness <- specnumber(x = natura_clean$reads)
+H <- vegan::diversity(x = natura_clean$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = natura_clean$reads, index = "simpson")
+D2 <- vegan::diversity(x = natura_clean$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = natura_clean$reads)) #Pielou’s evenness 
+
+#Rényi entropy & Hill's numbers
+
+R <- renyi(natura_clean$reads, scales = 2)
+head(R)
+N2 <- renyi(natura_clean$reads, scales = 2, hill = TRUE)  # other way to calculte inverse simpson
+head(N2)
+k <- sample(nrow(natura_clean$reads), 6)
+R <- renyi(natura_clean$reads[k,])
+plot(R)
+
+
+#Differences in species richness across samples
+df <- Richness %>% 
+  enframe() %>%
+  rename(Richness = value, 
+         sample_id = name)
+
+df2 <- left_join(natura_clean$samples, df)
+
+plot_richness <- ggplot(df2, aes(x = name, y = Richness, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Species richness - 16S natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_richness
+
+#looking at shannon
+df <- H %>% 
+  enframe() %>%
+  rename(Shannon = value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_shannon <- ggplot(df2, aes(x = name, y = Shannon, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Shannon - 16S natura_clean")+
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+plot_shannon
+
+#look at invsimpson
+df <- D2 %>% 
+  enframe() %>%
+  rename(invSimpson= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
+  geom_boxplot() +
+  labs(title = "InvSimpson - 16S natura_clean") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_invS
+
+
+#look at the same time Richness, shannon and inv_simpson per species
+
+r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+r
+
+
+
+#plot leaf and root on same plot
+Richness <- df2 %>%
+  mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Richness, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+
+Shannon <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom") 
+
+InvSimpson <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = invSimpson, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom") 
+
+all_alpha <- ggarrange(Richness, Shannon, InvSimpson, labels = c('A', 'B', 'C'), ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+all_alpha
+
+all_alpha <- annotate_figure(all_alpha, top = text_grob("16S - Alpha-diversity indices", 
+               color = "black", face = "bold", size = 20))
+
+ggsave("./results/16S_all_alpha_diversity.jpeg", all_alpha)
+
+```
+
+## beta diversity
+
+### calcul
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(natura_clean$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+
+mod <- betadisper(d = dis.hell.bray, group = as.factor(natura_clean$samples$organ), type = "median")
+mod
+
+
+# Average distance to median:
+#   leaf   root 
+# 0.5312 0.6074
+
+# tests if centroid distances are significantly different from each other
+anova(mod) #yes 1.7e-15 ***
+
+TukeyHSD(mod)
+
+
+## Plot the groups and distances to centroids on the
+## first two PCoA axes
+plot(mod)
+
+# Dimension (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod$eig[1]/ sum(mod$eig) * 100 #34.72
+
+# Dimension (i.e., Axis 2 (PCOA2))
+Axis2.percent <-  mod$eig[2]/ sum(mod$eig) * 100 #6.328  
+
+# get betadisper dataframes ####
+# have written functions to grab the necessary data from the betadisper object
+
+# functions #### before load them
+# getting distances from betadisper() object
+
+# get betadisper data ####
+betadisper_dat <- get_betadisper_data(mod)
+
+# do some transformations on the data
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+
+# add convex hull points ####
+# this could be put in a function
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+# combine centroid and eigenvector dataframes for plotting
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+# Now the dataframes are all ready to be completely customisable in ggplot
+# plot betadispersion plot
+pcoa_beta_16S_all <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+  geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_minimal(base_size = 20, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 6.3%') +
+  xlab('PCoA Axis 1 - 34.7%') +
+  theme(legend.position = 'none') + #remove legend
+   ggtitle("Beta diversity - 16S")+
+   # Set the colors for the two groups
+  scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02")) +
+  # Add text labels for the two groups
+  geom_text(aes(x = -0.25, y = 0.2, label = "leaf"), color = "#6bbf59", size = 6) +
+  geom_text(aes(x = 0.1, y = 0.2, label = "root"), color = "#E79F02", size = 6)
+pcoa_beta_16S_all
+#ggsave("./results/16S_all_beta_diversity.jpeg", pcoa_beta_16S_all)
+
+## Draw a boxplot of the distances to centroid for each group
+boxplot(mod) 
+
+
+df <- data.frame(Distance_to_centroid=mod$distances,Group=mod$group)
+groups <- mod$group
+
+p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 20)+
+  annotate(geom="text", x=1, y=0.69, label="Permutation test",
+              color="black", size = 4)+
+   annotate(geom="text", x=1.06, y=0.67, label="p-value =  0.01 **",
+              color="black", size = 4)+
+   theme(legend.position = "none", axis.title.x =element_blank())  +
+  scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02"))
+ # ggtitle("Beta diversity - 16S")
+p
+#ggsave("./results/16S_all_beta_diversity_suite.jpeg", p)
+
+
+## Permutation test for F
+set.seed(12345)
+r <- permutest(mod, pairwise = TRUE, permutations = 99) #permutation step to see if we have differences in terms of the mean distance to centroid in the randomozed data. pvalue generated from the permutation test is not significant  0.01 **. Groups or species explain 0.011323 of the variation. So no differences in the dispersion of the groups. 
+
+
+#Combine the two graphs
+
+Beta_all <- ggarrange( pcoa_beta_16S_all, p, ncol = 2, nrow = 1, widths = c(1, 0.5), labels = c("A", "B"))
+Beta_all 
+#ggsave("./results/16S_all_beta_diversity.jpeg", Beta_all)
+
+#subset leaf and repeat same analysis---------
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+leaf.dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") 
+
+mod.leaf <- betadisper(d = leaf.dis.hell.bray, group = as.factor(leaf$samples$name), type = "median")
+mod.leaf
+# tests if centroid distances are significantly different from each other
+anova(mod.leaf) #no  0.77
+leaf_tuket <- TukeyHSD(mod.leaf) #aucune paires de significatives
+plot(mod.leaf)
+
+# Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod.leaf$eig[1]/ sum(mod.leaf$eig) * 100 #9.23 
+Axis2.percent <-  mod.leaf$eig[2]/ sum(mod.leaf$eig) * 100 #5.853  
+#have a better plot
+betadisper_dat <- get_betadisper_data(mod.leaf)
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+betadisper_lines <- betadisper_lines %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+betadisper_dat$centroids <- betadisper_dat$centroids %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+
+betadisper_dat$eigenvector <- betadisper_dat$eigenvector %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+
+betadisper_dat$chull <- betadisper_dat$chull %>%
+mutate(group = gsub("_", " ", group)) %>%
+  separate(group, c("Genus", "Species")) %>%
+  mutate(group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  dplyr::select(-Genus, -Species)
+
+pcoa_beta_leaf <-  ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, group =  group, col = group), betadisper_dat$chull) +
+  #geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = group, col = group), betadisper_lines) +
+  theme_minimal(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 5.9%') +
+  xlab('PCoA Axis 1 - 9.2%') +
+  ggtitle("Leaf") +
+  theme(plot.title = element_text(color = "#6bbf59", face = "bold"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 14)) +
+  labs(col = "Species")
+pcoa_beta_leaf  
+
+
+# extract the legend as a text grob for later 
+legend_grob <- get_legend( pcoa_beta_leaf  )
+
+# draw the legend as a standalone plot for later
+legend_plot <- gridExtra::arrangeGrob(legend_grob, ncol = 1)
+
+# Draw a boxplot of the distances to centroid for each group
+boxplot(mod.leaf) 
+df <- data.frame(Distance_to_centroid=mod.leaf$distances,Group=mod.leaf$group)
+groups <- mod.leaf$group
+## Permutation test for F
+set.seed(12345)
+r.leaf <- permutest(mod.leaf, pairwise = TRUE, permutations = 99)
+leaf<- df %>%
+  mutate(name = gsub("_", " ", Group)) %>%
+  separate(name, c("Genus", "Species")) %>%
+  mutate(Group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  ggplot(aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 12)+
+  #annotate(geom="text", x=1, y=0.69, label="Permutation test",color="black")+
+   annotate(geom="text", x=4, y=0.68, label="p-value=0.01**",
+              color="black")+
+  theme(legend.position = "none", axis.title.x =element_blank(),axis.title.y =element_blank(), axis.text.x = element_blank())
+leaf
+
+#Combine the two graphs
+Beta_leaf <- ggarrange(pcoa_beta_leaf , leaf, ncol = 2, nrow = 1, widths = c(1, 0.5), common.legend = TRUE, legend = "none", labels = c("C", "D"))
+Beta_leaf 
+
+#subset root and repeat same analysis---------
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#root_sin_TM <- subset_metabarlist(root, table = "samples",indices = natura_clean$samples$name != "Tachigali_melinonii")
+
+root.dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray")
+mod.root <- betadisper(d = root.dis.hell.bray, group = as.factor(root$samples$name), type = "median")
+mod.root
+# tests if centroid distances are significantly different from each other
+anova(mod.root) #yes 0.0038 ** suelement tachigali
+root_tuket <- TukeyHSD(mod.root) #aucune paires de significatives
+plot(mod.root)
+
+# Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
+Axis1.percent <- mod.root$eig[1]/ sum(mod.root$eig) * 100 #15.1 
+Axis2.percent <-  mod.root$eig[2]/ sum(mod.root$eig) * 100 #6.938  
+#have a better plot
+betadisper_dat <- get_betadisper_data(mod.root)
+betadisper_dat$eigenvalue <- mutate(betadisper_dat$eigenvalue, percent = eig/sum(eig))
+betadisper_dat$chull <- group_by(betadisper_dat$eigenvector, group) %>%
+  do(data.frame(PCoA1 = .$PCoA1[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])],
+                PCoA2 = .$PCoA2[c(chull(.$PCoA1, .$PCoA2), chull(.$PCoA1, .$PCoA2)[1])])) %>%
+  data.frame()
+
+betadisper_lines <- merge(dplyr::select(betadisper_dat$centroids, group, PCoA1, PCoA2), dplyr::select(betadisper_dat$eigenvector, group, PCoA1, PCoA2), by = c('group'))
+
+pcoa_beta_root <- ggplot() +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$centroids, size = 4 ) +
+  geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
+  geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
+ # geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
+  theme_minimal(base_size = 12, base_family = 'Helvetica') +
+  ylab('PCoA Axis 2 - 6.9%') +
+  xlab('PCoA Axis 1 - 15.1%') +
+  theme(legend.position = 'bottom') +
+   ggtitle("Root")+
+    theme(plot.title = element_text(color = "#E79F02", face = "bold"))
+ pcoa_beta_root 
+
+# Draw a boxplot of the distances to centroid for each group
+boxplot(mod.root) 
+df <- data.frame(Distance_to_centroid=mod.root$distances,Group=mod.root$group)
+groups <- mod.root$group
+## Permutation test for F
+set.seed(12345)
+r.root <- permutest(mod.root, pairwise = TRUE, permutations = 99)
+root<- df %>%
+  mutate(name = gsub("_", " ", Group)) %>%
+  separate(name, c("Genus", "Species")) %>%
+  mutate(Group = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
+  ggplot(aes(x=Group,y=Distance_to_centroid,colour=groups)) + 
+  geom_boxplot(alpha=0.5) + 
+  theme_minimal(base_size = 12)+
+ # annotate(geom="text", x=1, y=0.69, label="Permutation test",color="black")+
+   annotate(geom="text", x=4, y=0.68, label="p-value=0.03*",
+              color="black")+
+   theme(legend.position = "none", axis.title.x =element_blank(),axis.title.y =element_blank(), axis.text.x = element_blank())
+  
+root
+
+#Combine the two graphs
+Beta_root <- ggarrange(pcoa_beta_root , root, ncol = 2, nrow = 1, widths = c(1, 0.5), common.legend = TRUE, legend = "none", labels= c("E", "F"))
+Beta_root 
+#ggsave("./results/16S_all_beta_diversity.jpeg", Beta_all)
+
+
+#Combine all graphs
+
+Beta <- ggarrange(Beta_all, ggarrange(Beta_leaf, Beta_root, ncol = 2, nrow = 1), legend_plot, nrow = 3, heights = c(2,1, 0.5))
+Beta
+ggsave("./results/Beta_16S.jpeg", Beta)
+```
+
+## variance partitionning
+
+Richness for leaf
+```{r}
+df2.leaf <- df2 %>% filter(organ == "leaf")
+model_null <- nlme::lme(Richness~ 1,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Richness ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+    Organ <- c("Leaf")
+  Diversity <- c("Richness")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.richness.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+Shannon for leaf
+```{r}
+model_null <- nlme::lme(Shannon~ 1,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Shannon ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Leaf")
+  Diversity <- c("Shannon")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.shannon.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+InvSimpson for leaf
+```{r}
+model_null <- nlme::lme(invSimpson~ 1,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(invSimpson ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Leaf")
+  Diversity <- c("invSimpson")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.invSimpson.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+Richness for root
+```{r}
+df2.root<- df2 %>% filter(organ == "root")
+model_null <- nlme::lme(Richness~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Richness ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("Richness")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.richness.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+Shannon for root
+```{r}
+model_null <- nlme::lme(Shannon~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Shannon ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("Shannon")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.shannon.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+InvSimpson for root
+```{r}
+model_null <- nlme::lme(invSimpson~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(invSimpson ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("invSimpson")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.invSimpson.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+
+
+Plot
+```{r}
+vars <- rbind(vars.richness.leaf, vars.shannon.leaf, vars.invSimpson.leaf, vars.richness.root, vars.shannon.root, vars.invSimpson.root)
+#vars
+#plot the results
+vars$Levels <- as.factor(vars$Levels)
+variance_plot<- vars %>%  
+  mutate(Levels = factor(Levels, levels=c("Traits", "Species", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Diversity)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#029A88",  "#CCBC44", "#BBBBBB" ),
+                    breaks=c("Traits", "Species", "Residual" ),
+                    labels=c("Traits", "Species", "Residual" ))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("16S Variance partitioning")
+variance_plot
+```
+
+Relative contribution of the different predictors used to model bacterial and fungal composition and diversity. Panels represent results from variation partitioning modelling aiming to identify the percentage variance of bacterial and fungal community composition and diversity explained by plant attributes (RootShoot + LA_Total+ LSWC), species identity and climate in Australia and England. Unique and shared variance from plant cover, diversity and functional traits in predicting microbial community composition and diversity were merged in this figure for simplicity.
+
+##dbRDA
+
+calculated a Bray–Curtis dissimilarity matrix based on endophyte relative abundance data. 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+#save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf_traits.Rdata")
+
+# Calculate Bray-Curtis dissimilarity matrix on relative abundances 
+microbio <- vegdist(vegan::decostand(leaf$reads, method = "hellinger"), method = "bray")
+
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+env <- leaf$samples[,c(4, 9:12, 17:37)]
+names(env)
+
+# perform dbRDA analysis
+ord <- dbrda(microbio ~ RootShoot + RootLength_Total+ LA_Total+ Height + StemDiameter + NbLeaves + fvfm  + SRL + LSWC + LT + Condition(name), data = env, add = "lingoes") #Add a constant to the non-diagonal dissimilarities such that all eigenvalues are non-negative in the underlying Principal Co-ordinates Analysis (see wcmdscale for details "lingoes" (or TRUE) uses the recommended method of Legendre & Anderson (1999: “method 1”) here we add: Constant added to distances: 6.679e-17 (you can see in the summary)
+ord2 <- capscale(microbio ~ RootShoot + RootLength_Total+ LA_Total+ Height + StemDiameter + NbLeaves + fvfm  + SRL + LSWC + LT + Condition(name), data = env, add = "lingoes")
+ord
+ord2 #not different from ord
+
+# Function dbrda does not return species scores, and they can also be missing in capscale, but they can be added after the analysis using function sppscores
+# # 
+# Call: dbrda(formula = microbio ~ RootShoot +
+# RootLength_Total + LA_Total + Height + StemDiameter +
+# NbLeaves + fvfm + SRL + LSWC + LT + Condition(name), data
+# = env, add = "lingoes")
+# 
+#               Inertia Proportion Rank
+# Total          20.073      1.000     
+# Conditional     2.052      0.102    6
+# Constrained     2.946      0.147   10
+# Unconstrained  15.074      0.751   52
+# Inertia is squared Euclidean distance 
+# 
+# Eigenvalues for constrained axes:
+#  dbRDA1  dbRDA2  dbRDA3  dbRDA4  dbRDA5  dbRDA6  dbRDA7  dbRDA8 
+#   0.898   0.560   0.287   0.271   0.199   0.189   0.170   0.150 
+#  dbRDA9 dbRDA10 
+#   0.119   0.102 
+# 
+# Eigenvalues for unconstrained axes:
+#  MDS1  MDS2  MDS3  MDS4  MDS5  MDS6  MDS7  MDS8 
+# 2.979 1.800 1.244 0.993 0.568 0.542 0.520 0.415 
+# (Showing 8 of 52 unconstrained eigenvalues)
+# 
+# Constant added to distances: 6.679e-17 
+
+# plot the RDA using ggplot (ggord package), make sure you clean graph env't before 
+ggord(ord) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+ggord(ord, env$name) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) 
+
+anova(ord) ## overall test of the significance of the analysis
+# Permutation test for dbrda under reduced model
+# Permutation: free
+# Number of permutations: 999
+# 
+# Model: dbrda(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + fvfm + SRL + LSWC + LT + Condition(name), data = env, add = "lingoes")
+#          Df SumOfSqs      F Pr(>F)
+# Model    10   1.3360 0.9967  0.492
+# Residual 52   6.9702  
+
+h <- with(env,
+    how(blocks = name, nperm = 999))
+
+anova(ord, permutations = h) ## overall test of the significance of the analysis knwing that the permutations cannnot be done across different species
+# Permutation test for dbrda under reduced model
+# Blocks:  name 
+# Permutation: free
+# Number of permutations: 999
+# 
+# Model: dbrda(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + fvfm + SRL + LSWC + LT + Condition(name), data = env, add = "lingoes")
+#          Df SumOfSqs      F Pr(>F)
+# Model    10   1.3360 0.9967  0.379
+# Residual 52   6.9702    
+
+anova(ord, by="terms") ## test for sig. trait varaibles
+# Permutation test for dbrda under reduced model
+# Terms added sequentially (first to last)
+# Permutation: free
+# Number of permutations: 999
+# 
+# Model: dbrda(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + fvfm + SRL + LSWC + LT + Condition(name), data = env, add = "lingoes")
+#                  Df SumOfSqs      F Pr(>F)
+# RootShoot         1   0.1567 1.1694  0.194
+# RootLength_Total  1   0.1060 0.7906  0.794
+# LA_Total          1   0.1189 0.8872  0.620
+# Height            1   0.1385 1.0331  0.365
+# StemDiameter      1   0.1219 0.9094  0.584
+# NbLeaves          1   0.1508 1.1249  0.272
+# fvfm              1   0.0801 0.5974  0.992
+# SRL               1   0.1314 0.9802  0.444
+# LSWC              1   0.1753 1.3081  0.129
+# LT                1   0.1564 1.1669  0.214
+# Residual         52   6.9702    
+
+
+RsquareAdj(ord)  #varpart uses RsquareAdj.
+# > RsquareAdj(ord)
+# $r.squared
+# [1] 0.1441034
+# 
+# $adj.r.squared : adjusted for the number of predictors used. A big gap between the R² and the adjR² is that there are possibly redundant predictors.
+# [1] -0.0005210806
+
+#2 ways to calculate it:
+
+# * vegan: calculates so called semipartial R2, in which the denominator is total inertia only (i.e. pure variation explained by explanatory variables / total inertia : 0.9650/9.2712 = 0.1040858
+#                                                                                               
+# *canoco: C5 calculates so called partial R2, in which variation explained by explanatory variables is divided by total inertia without the effect of covariables (i.e. pure variation explained by explanatory variables / (total inertia – variation explained by covariables)). Note that “pure variation explained by explanatory variables” is the amount of variation explanatory variables explain after removing the effect of covariables: 0.9650/(9.2712-1.3360) = 0.12161
+
+
+#perform nmds analysis, not constrained by anything
+set.seed(123)
+nmds <- metaMDS(microbio)
+
+plot(nmds)
+
+# Perform PERMANOVA to test for differences in endophyte community composition as a function of host species and genus
+permanova <- adonis2(microbio ~ Family + Genus + Species, data = env, permutations = 999)
+
+# Perform PERMDISP to test for homogeneity of variance in endophyte communities
+perm_disp <- betadisper(microbio, env$name)
+
+
+```
+
+##CCA
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# Calculate relative abundances 
+microbio <- vegan::decostand(leaf$reads, method = "hellinger")
+
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+env <- leaf$samples[,c(4, 9:12, 17:37)]
+names(env)
+env$name <- as.factor(env$name)
+
+#perform CCA analysis on relative abundances 
+leaf.16S.cca <- cca(microbio ~  RootShoot + RootLength_Total+ LA_Total+ Height + StemDiameter + NbLeaves + fvfm  + SRL + LSWC + LT , data = env)
+leaf.16S.cca
+
+
+
+```
+Call: cca(formula = microbio ~ RootShoot +
+RootLength_Total + LA_Total + Height + StemDiameter +
+NbLeaves + fvfm + SRL + LSWC + LT, data = env)
+
+              Inertia Proportion Rank
+Total           4.018      1.000     
+Constrained     0.580      0.144   10
+Unconstrained   3.438      0.856   58
+Inertia is scaled Chi-square 
+
+Eigenvalues for constrained axes:
+  CCA1   CCA2   CCA3   CCA4   CCA5   CCA6   CCA7   CCA8   CCA9 
+0.0824 0.0757 0.0643 0.0617 0.0574 0.0517 0.0496 0.0484 0.0457 
+ CCA10 
+0.0429 
+
+Eigenvalues for unconstrained axes:
+   CA1    CA2    CA3    CA4    CA5    CA6    CA7    CA8 
+0.1674 0.1371 0.1212 0.1073 0.1054 0.0974 0.0897 0.0888 
+(Showing 8 of 58 unconstrained eigenvalues)
+
+
+Results show that the total inertia is 4.018 and the proportion of the total variance explained by the traits is 14 %. 86% remains unexplained. There is still structure in the eigenvalues for unconstrained axes because the CA1 has a larger eigenvalues than the axes of the constrained CA. Eventhough we have 15 env't variables, we still aren't able to determine all the structure of the data.
+
+```{r echo=TRUE,eval=FALSE}
+summary(leaf.16S.cca)
+scores(leaf.16S.cca, display = "bp")
+```
+
+                    CCA1     CCA2
+RootShoot        -0.1509  0.31555
+RootLength_Total -0.4790  0.36637
+LA_Total         -0.1385  0.27179
+Height            0.1274  0.40929
+StemDiameter      0.1639  0.21676
+NbLeaves         -0.5936 -0.51350
+fvfm              0.3333  0.08371
+SRL              -0.3551 -0.46455
+LSWC              0.6630 -0.05087
+LT               -0.1223  0.32434
+
+
+Variables that are important on CCA axes 1 and on CCA axis 2 are RootLength_Total, Nb_Leaves, LSWC (Axe1) and LT, Height, NbLeaves, SRL (Axe 2). Root traits shape the leaf bacterial microbiota. 
+
+```{r}
+plot(leaf.16S.cca) #tripod
+```
+
+Unconstrained
+```{r}
+leaf.16S.ca <- cca(microbio)
+leaf.16S.ca
+
+layout(matrix(1:2, ncol =2))
+plot(leaf.16S.ca)
+plot(leaf.16S.cca)
+
+#we reduced the impact of the rare taxa and the archi-type artefact. outliers are less extremes because we constrained them by the env'tal variables.
+```
+
+Scaling effect
+```{r echo=TRUE,eval=TRUE}
+
+layout(matrix(1:2, ncol =2))
+plot(leaf.16S.cca, scaling = "species") #here we focus on the species (microbial dataset) weighted by the site' score (seedling's ID).
+plot(leaf.16S.cca, scaling = "site")#here we focus on the sites (our seedlings' identity) weighted by the species' score (microbial data).
+```
+
+Look for redundant trait variables that are highly correlated with each other. 
+
+```{r echo=TRUE,eval=FALSE}
+#correlation matrix of the traits
+cor(env[ ,6:26])
+
+#calculate the variance inflation factors for each variable. Drop if more than 10.
+vif.cca(leaf.16S.cca)
+```
+
+Traits that might be redundant and therefore dropped from the CCA model :  here none
+
+Check the significance of the full CCA model we have using the `anova()` function
+```{r echo=TRUE,eval=FALSE}
+set.seed(123) #uses random permutations so we set a seed.
+anova(leaf.16S.cca) #by = "terms"/ by margins
+```
+
+Permutation test for cca under reduced model
+Permutation: free
+Number of permutations: 999
+
+Model: cca(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + fvfm + SRL + LSWC + LT, data = env)
+         Df ChiSquare    F Pr(>F)
+Model    10      0.58 0.98   0.71
+Residual 58      3.44  
+
+This model is not significant !
+
+Fowards selection and backwards elimination
+```{r}
+null_model <- cca(microbio ~1 , data = env) #null model which is a CA (unconstrained)
+
+model <- step(object = leaf.16S.cca, scope = list(lower = formula(null_model), upper = formula(leaf.16S.cca)), test = "perm", trace = FALSE) #takes a long time like 5 min
+
+model$anova #print out the record of the steps
+
+# 
+#                  Step Df Deviance Resid. Df Resid. Dev   AIC
+# 1                     NA       NA        58       3238 287.5
+# 2              - fvfm  1    44.26        59       3282 286.5
+# 3          - LA_Total  1    49.89        60       3332 285.5
+# 4            - Height  1    50.35        61       3382 284.6
+# 5      - StemDiameter  1    54.17        62       3436 283.7
+# 6                - LT  1    53.71        63       3490 282.7
+# 7               - SRL  1    54.77        64       3545 281.8
+# 8         - RootShoot  1    54.20        65       3599 280.8
+# 9              - LSWC  1    57.88        66       3657 279.9
+# 10 - RootLength_Total  1    61.07        67       3718 279.1
+# 11         - NbLeaves  1    65.68        68       3784 278.3
+
+
+
+model  #to view the final model
+
+set.seed(123)
+anova(model) #to test the model and see how significant the effects of the constraints are.
+summary(model) 
+```
+
+*Is it different from the full model?* it is the null model haha
+
+```{r}
+plot(model)
+```
+
+Step-wise selection using Adjusted $R^2$
+
+*include the adjusted $R^2$ in our evaluations* of the models using the function `ordiR2step()` where we add a variable if it significantly improves the model, and we also compare against the $R^2_{\text{adjusted}}$ of the model at the upper scope.
+
+```{r ordir2step-cca-delete}
+mod.r2step <- ordiR2step(null_model, scope = formula(leaf.16S.cca))
+mod.r2step
+mod.r2step$anova
+
+anova(mod.r2step, by = "margin") #again, it is the null model !!! adding the traits does not change anything significantly
+```
+
+With condition - **Partial CCA model**
+we want to fit a model to our microbial data after controlling for the effects of the seedlings' identity. The effect of the seedlings' identity is partialled out, and a CCA model is applied to explain the residual variation. Partial models can also be used to evaluate the significance of adding a new variable to a model already containing one or more variables&mdash;partial out the existing variables and fit a model with the new variable of interest, using `anova()` to assess the effect of adding this new variable.
+```{r}
+partial.model <- cca(microbio ~ RootShoot + RootLength_Total+ LA_Total+ Height + StemDiameter + NbLeaves + fvfm  + SRL + LSWC + LT + Condition(name), data = env) #here we are looking a bit at variacne aprtitioning and how much variation is due to the seedlings' ID compared to the traits.
+partial.model
+anova(partial.model)
+plot(partial.model)
+```
+
+Permutation test for cca under reduced model
+Permutation: free
+Number of permutations: 999
+
+Model: cca(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + fvfm + SRL + LSWC + LT + Condition(name), data = env)
+         Df ChiSquare    F Pr(>F)
+Model    10     0.569 0.97   0.78
+Residual 52     3.068 

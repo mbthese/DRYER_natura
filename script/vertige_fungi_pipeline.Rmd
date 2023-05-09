@@ -1,0 +1,3337 @@
+---
+title: "obitools3_fungi"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+Luan et al 2020 Nature Comm : Variation partitioning analysis :
+Variation partitioning analysis was conducted to tease apart the
+relative importance of environmental factors and spatial factors on
+variation in microorganism communities
+
+Assessment of community assembly processes: β-null deviation :The
+abundance-based β-null model was used to partition the relative
+influences of deterministic and stochastic processes mediating community
+assembly
+
+Assessment of community environmental selection: niche breadth:To
+evaluate the ecological process of selection, we estimated niche breadth
+for each organism group with different body sizes. Niche breadth is
+generally used to evaluate the sensitivity of species to habitat
+filtering.
+
+Assessment of community dispersal rate: neutral model:The Sloan neutral
+model was used to estimate the importance of passive dispersal on
+community assembly by predicting the relationship between the frequency
+with which taxa occur in a set of local communities and their abundance
+across the wider metacommunity.
+
+In this study, we quantified the assembly processes shaping epiphytic
+and endophytic bacterial communities from the bottom to the top of the
+canopy of three Neotropical tree species in French Guiana. We used DNA
+metabarcoding to characterize leaf bacterial communities and measured
+morphological and chemical foliar traits of host tree to describe
+variations in the microhabitat of bacteria along the vertical gradient.
+We specifically tested the hypothesis: (H1) vertical stratification is
+stronger in epiphytic than in endophytic communities, because epiphytes
+respond to the within-canopy microclimate gradient ; (H2) the assembly
+of epiphytic bacterial communities is more deterministic at the top than
+at the bottom of the canopy, because of harsher abiotic conditions
+(higher UV radiations and lower humidity) at the top of the canopy ;
+(H3) foliar traits contribute more to the assembly of endophytic than
+epiphytic communities, because endophytes are intimately linked to their
+host tree.
+
+#OBJECTIVES H1) vertical stratification in stronger in epiphytic than in
+endophytic communities, because epiphytes respond to the within-canopy
+microclimate gradient 
+tester les effets directs de la variation de
+lumiere et des effets indirects via les effets sur les traits foliaires
+sur la composition des bacterie et champignons (en supp tester sur la
+div alpha) calculer la composition et alpha epi et endo pour chaque
+strate (B et F) variation partitioning analysis : determiner les effets
+de l'env (canopee) + foliaire + geo (pcnm) via lm sur les alpha et
+permanova sur les compo
+varpart avec space+sp+position pour epi et endo fungi and bacteria
+varpart avec space+sp+position+leaf_trait our epi et endo fungi and bacteria
+
+(H2) the assembly of epiphytic communities is more deterministic at the
+top than at the bottom of the canopy (harsher abiotic conditions UV
+radiations and lower humidity))
+
+H3) Foliar traits contribute more to the assembly of endophytic than
+epiphytic communities (endophytes are intimately linked to their hosts)
+tester determinism vs stochasticty global sur endo vs epi (NDV, OMI) :
+epi + stoch endo +deter
+
+(H4) functional approach : assigner les taxons : pathogen, decomposeurs,
+mutualist, bacterie photosynthetiques / oligotrophes vs copiotrophes)
+
+#LIBRARIES
+```{r install_metabar_physeq, eval=FALSE}
+#install metabaR
+install.packages("BiocManager")
+BiocManager::install("biomformat")
+install.packages("remotes")
+BiocManager::install("metabaRfactory/metabaR")
+
+#install phyloseq
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("phyloseq")
+
+# install several packages if update of R and RStudio
+ipak <- function(pkg){
+    new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+    if (length(new.pkg)) 
+        install.packages(new.pkg, dependencies = TRUE)
+    sapply(pkg, require, character.only = TRUE)
+}
+  
+# usage (list of packages)
+packages<-c("tidyverse","dplyr","vegan","FactoMineR","car","missMDA","ggplot2","corrplot","factoextra","MASS","cowplot","nlme","MuMIn","multcomp","ggpubr","ade4","hillR","adespatial","reldist","bipartite" )
+ipak(packages)
+```
+
+```{r main libraries, results='hide'}
+library(tidyverse)
+library(dplyr)
+library(FactoMineR)
+library(car)
+library(missMDA)
+library(metabaR)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(MASS)
+library(cowplot)
+library(nlme)
+library(MuMIn)
+library(multcomp)
+library(ggpubr)
+library(ade4)
+library(hillR)
+library(adespatial)
+library(reldist)
+library(bipartite)
+library(vegan)
+library(scales)
+source("MetacommunityDynamicsFctsOikos.R")
+source("PANullDevFctsOikos.R")
+
+```
+
+
+#FUNGI DATASET: 
+OBITOOLS3 trimming and assigment with Obitools3 and
+RDP. At the end, do a clustering step (with sumaclust)
+
+```{bash obitools3}
+#import data
+obi import --fastq-input 180810_SN234_A_L001_AMVG-1_AdapterTrimmed_R1.fastq fungi/reads1
+obi import --fastq-input 180810_SN234_A_L001_AMVG-1_AdapterTrimmed_R2.fastq fungi/reads2
+obi import --ngsfilter ngsfile_fungi.csv fungi/ngsfile_fungi7
+
+#check files
+obi ls -l fungi
+#Align Paired-End
+obi alignpairedend -R fungi/reads2 fungi/reads1 fungi/aligned_reads
+obi grep -a mode:alignment fungi/aligned_reads fungi/good_sequences
+#Assign each read to corresponondg marker/combination
+obi ngsfilter -t fungi/ngsfile_fungi7 -u fungi/unidentified_sequences fungi/good_sequences fungi/identified_sequences
+#dereplicate reads into unique sequences
+obi uniq -m sample fungi/identified_sequences fungi/dereplicated_sequences
+#denoise the sequence dataset
+obi annotate -k COUNT -k MERGED_sample -k score_norm -k ali_length fungi/dereplicated_sequences fungi/cleaned_metadata_sequences
+obi grep -p len(sequence)>=80 and sequence['COUNT']>=10 fungi/clean_metadata_sequences fungi/denoised_sequences
+obi clean -s MERGED_sample -r 0.05 -H fungi/denoised_sequences fungi/cleaned_sequences
+
+#export in fasta
+obi export --fasta-ouput fungi/assigned_sequences -o fungi_embl_ecotag.fasta
+obi stats -c SCIENTIFIC_NAME fungi/assigned_sequences
+obi stats -c SCIENTIFIC_NAME fungi/assigned_sequences
+```
+
+assignation with RDP and Unite/ ##Check for PCR and sequencing errors
+with MetabaR Build files in good format
+
+```{r fungi build metabaR files, echo=FALSE}
+setwd("~/Documents/VERTIGE/analyses/fungi-bacteria-functional")
+#compile infos
+d=read.delim(file="fungi_97",header=T,sep="\t")
+d2=read.delim(file = "fungi_blast_Unite_V2-1.txt",header=T,sep="\t")
+d3=read.delim(file="fungi_embl_ecotag_clust97_true_k.tab",header=T)
+tmp<-data.frame(right_join(d,d2,by="id"))
+data_f<-data.frame(left_join(tmp,d3[,c(1,417)],by="id"))
+
+#reads
+tmp2=droplevels.data.frame(data_f[,c(1,14:424)])
+tmp2[is.na(tmp2)] <- 0
+write.table(tmp2,file="tmp2.txt",row.names = F)
+reads=t(tmp2[,-1])
+colnames(reads)=tmp2$id
+rownames(reads)=colnames(tmp2[,-1])
+hist(rowSums(reads),breaks=50,main="Length of reads")
+##check NA values by rows in data.frame
+apply(reads, 1, function(x) any(is.na(x)))
+reads<-reads[!(rownames(reads)=="f12_r16"),]
+reads=as.matrix(reads)
+
+
+#motus
+motus=data_f[,c(1,5,13,425:433)]
+#motus=left_join(tmp2,tmp3[,c(1,417)],by="id")#
+rownames(motus)=motus$id
+
+#samples
+tmp5=read.delim("db_field_vertige_corrige.txt",header=T)
+tmp6<-tmp5[which(tmp5$sample_id %in% rownames(reads)),]
+samples=dplyr::select(tmp6,carre,arbre,binom,position,feuille,samples, sample_id,position_leave=epi_endo,x=x.utm,y=y.utm,chloro=Chloro.microg.cm2,thickness=THICKNESS.microm,ldmc=LDMC.mg.g,leaf.area=Leaf.area.cm2,lma=LMA.g.m2,ccm=CCm.gGluc.gMS,lwc=leaf.water.content,C=C.gC.gMS,N=N.gN.gMS,Ca, Ash, Cu,Fe, Mg,Mn,C.N,P,K,Na, Zn,SD=stomatal.density)
+rownames(samples)<-samples$sample_id
+samples<-samples[!(samples$sample_id=="f12_r16"),]
+
+
+#pcrs
+tmp3=read.delim2("ngsfilter_its.txt",header=T)
+pcrs=dplyr::filter(tmp3, tmp3$sample_id %in% rownames(reads))
+rownames(pcrs)=pcrs$sample_id
+
+#metabarlist
+fungi=metabarlist_generator(
+  reads = reads,
+  motus = motus,
+  pcrs = pcrs,
+  samples = samples)
+
+#tagjump contamination
+fungi_clean<-tagjumpslayer(fungi,method="cut",0.03)
+fungi_clean_cont<-contaslayer(fungi_clean)
+
+## Distribution of the most abundant contaminant MOTU in the PCR plate design
+contaminants <- rownames(fungi_clean_cont$motus)[fungi_clean_cont$motus$not_a_contaminant == FALSE]
+max.conta <- contaminants[which.max(fungi_clean_cont$motus[contaminants, "COUNT"])]
+
+p <- ggpcrplate(fungi_clean_cont,
+  legend_title = "# reads",
+  FUN = function(m) {
+    m$reads[, max.conta]
+  }
+)
+
+p + scale_size(limits = c(1, max(fungi_clean_cont$reads[, max.conta]))) +
+  ggtitle("Distribution of the most abundant contaminant")
+
+## remove contaminants in datasets
+fungi_final<-subset_metabarlist(fungi_clean_cont,table = "motus",indices = (fungi_clean_cont$motus$not_a_contaminant==TRUE))
+
+##main statistics
+a<-summary_metabarlist(fungi_final,"pcrs",groups = fungi_final$pcrs$control_type)
+b<-summary_metabarlist(fungi_final,"motus",groups = fungi_final$motus$phylum)
+c<-summary_metabarlist(fungi_final,"motus",groups = fungi_final$motus$order)
+
+d<-summary_metabarlist(fungi_clean_cont,"pcrs",groups = fungi_clean_cont$pcrs$control_type)
+## keep only samples for analyses
+tp<-subset_metabarlist(fungi_final,table="samples",indices = (!(fungi_final$samples$samples %in% "control")))
+
+#check what'is in controls
+tp2<-subset_metabarlist(fungi_final,table="samples",indices = ((fungi_final$samples$samples %in% "control")))
+
+#keep only HMBS as position (L=senescent)
+fungi_final_samples<-subset_metabarlist(tp,table="samples",indices=(!(tp$samples$position %in% "L")))
+#remove samples with 0 data
+fungi_final_samples<-subset_metabarlist(fungi_final_samples,table="reads",indices=(rowSums(fungi_final_samples$reads) !=0))
+
+#split endo and epiphyte
+fungi_final_samples_endo<-subset_metabarlist(fungi_final_samples,table="samples",indices=((fungi_final_samples$samples$position_leave %in% "endo")))
+fungi_final_samples_epi<-subset_metabarlist(fungi_final_samples,table="samples",indices=((fungi_final_samples$samples$position_leave %in% "epi")))
+
+
+summary_metabarlist(fungi_final_samples)
+summary_metabarlist(fungi_final_samples_endo)
+summary_metabarlist(fungi_final_samples_epi)
+
+
+
+```
+figures of main class for endophytes and epiphytes 
+```{r}
+# %OTU with no assignation at the family level (for review)
+table_fun_fam<-data.frame(table(fungi_final_samples_endo$motus$phylum,fungi_final_samples_endo$motus$family))
+
+
+table_fun<-data.frame(table(fungi_final_samples_endo$motus$class,fungi_final_samples_endo$motus$kingdom))
+t<-data.frame(table(fungi_final_samples_epi$motus$class,fungi_final_samples_epi$motus$kingdom))
+t_table<-left_join(t,table_fun,by="Var1")
+colnames(t_table)<-c("Class","Kingdom","Endophytes","Kingdom2","Epiphytes")
+t_table[is.na(t_table)]<-0
+
+
+g3<-ggplot(t_table,aes(fill=Class,y=Endophytes,x=Kingdom))+
+  geom_bar(stat="identity",position="fill")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),panel.background  = element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank(),legend.position="none")+
+  scale_x_discrete("Endophytes")
+
+g4<-ggplot(t_table,aes(fill=Class,y=Epiphytes,x=Kingdom))+
+  geom_bar(stat="identity",position="fill")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),panel.background  = element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank(), legend.text = element_text(size=8),legend.key.size = unit(0.4,"cm") )+
+  guides(fill=guide_legend(ncol=1))+
+  scale_x_discrete("Epiphytes")
+
+grid.arrange(g3,g4,ncol=2,widths=c(1,2))
+```
+
+#BACTERIA : 
+copy files from Vertige1 paper
+
+```{r bacteria}
+load(file="physeq_bacteria.RData")
+taxo_bac<-data.frame(physeq@tax_table)
+write.csv(taxo_bac,"taxo_bac.csv")
+```
+
+build files for metabaR
+
+```{r bacteria build metabaR files, echo=FALSE}
+#import data
+bac<-read.delim(file="allrank_vertige.bact.cleanH.fa_classified.txt",header=TRUE)
+
+
+#bac<-read.csv(file="cleaned_sequences_silva.csv",sep=";",header=T)
+#bac<-droplevels.data.frame(bac[which(bac$Superkingdom !="Archaea"),])
+
+db_field<-read.delim("db_field_vertige_corrige.txt",header=T)
+env_data<-dplyr::select(db_field,carre,arbre,binom,position,feuille,samples,sample_id,position_leave=epi_endo,x=x.utm,y=y.utm,chloro=Chloro.microg.cm2,thickness=THICKNESS.microm,ldmc=LDMC.mg.g,leaf.area=Leaf.area.cm2,lma=LMA.g.m2,ccm=CCm.gGluc.gMS,lwc=leaf.water.content,C=C.gC.gMS,N=N.gN.gMS,Ca,Ash,Cu,Fe,Mg,Mn,C.N,P,K,Na,Zn,Stom.den=stomatal.density)
+
+ngs2<-read.delim(file="ngsfilter_vertige_tot2.txt",header=T)
+ngs_bact<-droplevels.data.frame(ngs2[which(ngs2$gene=="16s"),])
+
+raw_b<-read.delim(file="vertige.bact.cleanH.tab",header = T)
+
+#keep sequences for alignments, and replace "_" by "." in sequences id 
+seq_comp<-dplyr::select(raw_b,id,sequence)
+
+ #replace ":" by "."
+write.table(seq_comp,"seq_comp.txt",row.names = FALSE)
+seq_comp<-read.delim("seq_comp.txt",header=T)
+
+otu_b<-dplyr::select(raw_b,c(1,20:363,1448)) # 10178 rows, 346 columns
+rownames(otu_b)<-seq_comp$id
+
+#read_b =  10178 columns -  344 rows
+tmp<-otu_b[,-c(1,346)]
+reads_b=t(tmp)
+
+write.table(tmp,"tmp.txt")
+
+#pcrs 11 columns - 342 rows
+pcrs_b=ngs_bact
+rownames(pcrs_b)=pcrs_b$sample_id
+pcrs_b<-pcrs_b[which(pcrs_b$sample_id %in% colnames(tmp)),]
+
+
+#samples 31 columns - 342 rows
+samples_b<-env_data[which(env_data$sample_id %in% rownames(pcrs_b)),]
+rownames(samples_b)<-samples_b$sample_id
+
+#motus_b = 12 columns - 10178 rows
+rownames(bac)=rownames(tmp)
+bac$sequence<-otu_b$sequence
+motus_b<-bac
+
+# reads_b 342 rows, 10178 columns
+reads_b<-reads_b[which(rownames(reads_b) %in% samples_b$sample_id),]
+reads_b<-as.matrix(reads_b)
+
+write.table(motus_b,"motus_b.txt")
+
+hist(rowSums(reads_b),breaks=50,main="Length of reads")
+
+
+#metabarlist
+bacteria=metabarlist_generator(
+  reads = reads_b,
+  motus = motus_b,
+  pcrs = pcrs_b,
+  samples = samples_b)
+
+#tagjump contamination
+bac_clean<-tagjumpslayer(bacteria,0.03, method="cut")
+bac_clean_cont<-contaslayer(bac_clean)
+
+## Distribution of the most abundant contaminant MOTU in the PCR plate design
+contaminants_b <- rownames(bac_clean_cont$motus)[bac_clean_cont$motus$not_a_contaminant == FALSE]
+max.conta_b <- contaminants[which.max(bac_clean_cont$motus[contaminants, "COUNT"])]
+
+## remove contaminants in datasets
+bac_final<-subset_metabarlist(bac_clean_cont,table = "motus",indices = (bac_clean_cont$motus$not_a_contaminant==TRUE))
+
+##main statistics
+a<-summary_metabarlist(bacteria,"pcrs",groups = bacteria$pcrs$control_type)
+
+e<-summary_metabarlist(bac_clean_cont,"pcrs",groups = bac_clean_cont$pcrs$control_type)
+## keep only samples for analyses
+bac_final_samples2<-subset_metabarlist(bacteria,table="pcrs",indices = (!(bacteria$pcrs$type %in% "control")))
+
+#check what'is in controls
+tp3<-subset_metabarlist(bacteria,table="samples",indices = ((bacteria$samples$samples %in% "control")))
+
+
+#keep only HMBS as position (S=litter, L = senescent)
+bac_final_samples<-subset_metabarlist(bac_final_samples,table="samples",indices=(!(bac_final_samples$samples$position %in% "L")))
+bac_final_samples2<-subset_metabarlist(bac_final_samples2,table="samples",indices=(!(bac_final_samples2$samples$position %in% "L")))
+#remove samples with 0 data
+bac_final_samples<-subset_metabarlist(bac_final_samples,table="reads",indices=(rowSums(bac_final_samples$reads) !=0))
+bac_final_samples2<-subset_metabarlist(bac_final_samples2,table="reads",indices=(rowSums(bac_final_samples2$reads) !=0))
+#split endo and epiphyte
+bac_final_samples_endo<-subset_metabarlist(bac_final_samples,table="samples",indices=((bac_final_samples$samples$position_leave %in% "endo")))
+bac_final_samples_endo2<-subset_metabarlist(bac_final_samples2,table="samples",indices=((bac_final_samples2$samples$position_leave %in% "endo")))
+
+bac_final_samples_epi<-subset_metabarlist(bac_final_samples,table="samples",indices=((bac_final_samples$samples$position_leave %in% "epi")))
+bac_final_samples_epi2<-subset_metabarlist(bac_final_samples2,table="samples",indices=((bac_final_samples2$samples$position_leave %in% "epi")))
+
+summary_metabarlist(bacteria,"pcrs",groups = bacteria$pcrs$control_type)
+summary_metabarlist(bac_final_samples_endo)
+summary_metabarlist(bac_final_samples_epi)
+
+bac<-subset_metabarlist(bac_final_samples,table="motus",indices=(bac_final_samples$motus$kingdom %in% "Bacteria"))
+summary_metabarlist(bac)                                                            
+  
+
+```
+
+figures of main class for endophytes and epiphytes 
+```{r}
+table_bac<-data.frame(table(bac_final_samples_endo$motus$class,bac_final_samples_endo$motus$kingdom))
+table_bac<-droplevels.data.frame(table_bac[which(table_bac$Var2 !="Archaea"),])
+t2<-data.frame(table(bac_final_samples_epi$motus$class,bac_final_samples_epi$motus$kingdom))
+t2<-droplevels.data.frame(t2[which(t2$Var2 !="Archaea"),])
+
+t_table_bac<-merge.data.frame(t2,table_bac,by="Var1",all=TRUE)
+colnames(t_table_bac)<-c("Class","Kingdom","Epiphytes","Kingdom2","Endophytes")
+t_table_bac[is.na(t_table_bac)]<-0
+
+
+g5<-ggplot(t_table_bac,aes(fill=Class,y=Endophytes,x=Kingdom))+
+  geom_bar(stat="identity",position="fill")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),panel.background  = element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank(),legend.position="none")+
+  scale_x_discrete("Endophytes")
+
+g6<-ggplot(t_table_bac,aes(fill=Class,y=Epiphytes,x=Kingdom))+
+  geom_bar(stat="identity",position="fill")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),panel.background  = element_blank(),axis.title.y=element_blank(),axis.text.x=element_blank(), legend.text = element_text(size=8),legend.key.size = unit(0.4,"cm") )+
+  guides(fill=guide_legend(ncol=2))+
+  scale_x_discrete("Epiphytes")
+
+grid.arrange(g5,g6,ncol=2,widths=c(1,3))
+
+```
+
+
+#FUNCTIONAL ANNOTATION
+
+## FUNGI
+```{r}
+fungaldb<-read.delim(file="FungalTraits 1.2_ver_16Dec_2020.txt") # from Abarenko 2020
+tmp<-data.frame(fungi_final_samples_endo$motus[,c(1,4:10)])
+table(tmp$Phylum,tmp$Kingdom)
+motus_func<-left_join(tmp,fungaldb,by=c("Genus"="genus"), keep=FALSE)
+write.table(motus_func,"motus_func.txt",row.names = FALSE)
+#add a trophic_mode column to motus_func (xls) with terms (Pathotroph, Symbiotroph, Saprotroph) and replace empty and NA with Unknown
+motus_func2<-read.delim("motus_func.txt",header=TRUE)
+
+reads_func<-data.frame(t(fungi_final_samples$reads))
+reads_func$id<-rownames(reads_func)
+
+motus_func2.2<-left_join(motus_func2,reads_func,by=c("id"="id"))
+tmp_f<-motus_func2.2[,c(1,15)]
+rownames(tmp_f)<-tmp_f$id
+t<-fungi_final_samples$reads
+t2_f<-data.frame(t(t))
+t2_f$id<-rownames(t2_f)
+t2_f<-merge(t2_f,tmp_f)
+t3_f<-t2_f%>%group_by(t2_f$Trophic.Mode)%>%summarise(number=count())
+#sum in excel
+write.table(t2_f,"t2_f.txt",row.names = F)
+t2_f.2<-read.delim("t2_f.2.txt",header=T)
+t2_f.3<-data.frame(t(t2_f.2[,-1]))
+colnames(t2_f.3)<-t2_f.2$Trophic.Mode
+t2_f.4<-data.frame(t2_f.3,fungi_final_samples$samples)
+t2_f.4$position<-factor(t2_f.4$position,levels=c("H","M","B","S"))
+
+library(dunn.test)
+#saprotroph
+lm1.f<-kruskal.test(Saprotroph~position, t2_f.4)
+lm1.f
+
+#pathotroph
+lm2.f<-kruskal.test(Pathogen~position, t2_f.4)
+lm2.f
+
+#symbiotroph
+lm3.f<-kruskal.test(Symbiotroph~position, t2_f.4)
+lm3.f
+
+#overall numbers by category
+colSums(t2_f.3)
+sum(colSums(t2_f.3))
+#pathogen = 29.43%
+#saprotroph = 39.32%
+#symbiotroph = 4.89%
+
+```
+```{r fun_plot_functional}
+g1.f<-ggplot(t2_f.4,aes(x=position,y=Saprotroph))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,5000)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+
+g2.f<-ggplot(t2_f.4,aes(x=position,y=Pathogen))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,5000)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+
+g3.f<-ggplot(t2_f.4,aes(x=position,y=Symbiotroph))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,80)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+
+plot_grid(g1.f,g2.f,g3.f,ncol=3)
+```
+
+
+##BACTERIA
+
+```{r prepare file for faprotax}
+s<-data.frame(t(bac_final_samples$reads))
+s$name<-rownames(s)
+taxo_bac<-merge(bac, s, by="name",all=TRUE)
+write.table(taxo_bac,file="taxo_bac.txt",row.names = FALSE)
+```
+
+```{bash functional_annotation_bacteria}
+# format a .txt file with 1st column = silva_lineage, in one column taxa separated with ";" and ending with ";" , then other columns are abundance in each samples. Rows are OTUs
+python /Users/heidy.schimann/FAPROTAX_1.2.4//collapse_table.py -i taxo_bac.txt -o ba_func_table.txt -g /Users/heidy.schimann/FAPROTAX_1.2.4/FAPROTAX.txt -d "silva_lineage" --group_leftovers_as 'other' -r ba_report.txt --out_group_overlaps ba_group_overlaps.tsv --out_group_definitions_used ba_group_definitions_used.txt -v -f
+```
+file prep par Lucie sur sa base fonctionnelle
+
+```{r bac_func}
+tmp<-read.delim2("vertige---ssu---otus_annotated.tsv",header=T)
+
+#TROPHIC.GROUP
+tmp2<-tmp[,c(3,19)]
+rownames(tmp2)<-tmp2$cluster.id
+t<-bac_final_samples$reads
+t2<-data.frame(t(t))
+t2$id<-rownames(t2)
+tmp2<-left_join(tmp2,t2, by=c("cluster.id"="id"))
+write.table(tmp2,"tmp2.txt",row.names = F)
+tmp2.2<-read.delim("tmp2.txt",header=T)
+
+a<-aggregate(tmp2.2[,c(3:276)], by=list(tmp2.2$trophic.group),data=tmp2.2,FUN = mean)
+a<-tmp2.2%>%group_by(tmp2.2$trophic.group)%>%summarise(nb=n())
+tmp2.3<-data.frame(t(a[,-1]))
+colnames(tmp2.3)<-a$Group.1
+tmp2.3<-data.frame(tmp2.3,bac_final_samples$samples)
+
+shapiro.test(tmp2.3$chemolithoautotroph)
+
+t3<-bac_final_samples$samples
+t3bis <- t3[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+tmp2.4<-data.frame(tmp2.3[,1:17],t3bis)
+tmp2.4$position<-factor(tmp2.4$position,levels=c("H","M","B","S"))
+
+library(dunn.test)
+#chemolithoautroph
+lm1<-kruskal.test(chemolithoautotroph~position, tmp2.4)
+lm1
+dunn.test(tmp2.4$chemolithoautotroph,tmp2.4$position)
+
+#osmotroph
+lm2<-kruskal.test(osmotroph~position, tmp2.4)
+lm2
+
+#photolithoautotroph
+lm3<-kruskal.test(photolithoautotroph~position, tmp2.4)
+lm3
+dunn.test(tmp2.4$photolithoautotroph,tmp2.4$position,method="bonferroni")
+
+#phytoparasite
+lm4<-kruskal.test(phytoparasite~position, tmp2.4)
+lm4
+dunn.test(tmp2.4$phytoparasite,tmp2.4$position,method="bonferroni")
+
+#saprotroph
+lm5<-kruskal.test(saprotroph~position, tmp2.4)
+lm5
+
+#zooparasite
+lm6<-kruskal.test(zooparasite~position, tmp2.4)
+lm6
+dunn.test(tmp2.4$zooparasite,tmp2.4$position,method="bonferroni")
+
+
+
+#KR_STRATEGY
+tmp3<-tmp[,c(3,48)]
+rownames(tmp3)<-tmp3$cluster.id
+t<-bac_final_samples$reads
+t3<-data.frame(t(t))
+t3$id<-rownames(t3)
+tmp3<-left_join(tmp3,t3, by=c("cluster.id"="id"))
+write.table(tmp3,"tmp3.txt",row.names = F)
+tmp3.2<-read.delim("tmp3.txt",header=T)
+
+a<-aggregate(tmp3.2[,c(3:276)], by=list(tmp3.2$kr_strategy),data=tmp3.2,FUN = mean)
+
+tmp3.3<-data.frame(t(a[,-1]))
+colnames(tmp3.3)<-a$Group.1
+tmp3.3<-data.frame(tmp3.3,bac_final_samples$samples)
+tmp3.4<-data.frame(tmp3.3[,1:17],t3bis)
+tmp3.4$position<-factor(tmp3.4$position,levels=c("H","M","B","S"))
+
+library(dunn.test)
+#copiotroph
+lm7<-kruskal.test(copiotroph~position, tmp3.4)
+lm7
+dunn.test(tmp3.4$copiotroph,tmp3.4$position, method="bonferroni")
+
+#copiotroph.oligotroph
+lm8<-kruskal.test(copiotroph.oligotroph~position, tmp3.4)
+lm8
+dunn.test(tmp3.4$copiotroph.oligotroph,tmp3.4$position, method="bonferroni")
+
+#oligotroph
+lm9<-kruskal.test(oligotroph~position, tmp3.4)
+lm9
+dunn.test(tmp3.4$oligotroph,tmp3.4$position, method="bonferroni")
+
+
+#NITROGEN_FIXATION
+tmp4<-tmp[,c(3,50)]
+rownames(tmp4)<-tmp4$cluster.id
+t<-bac_final_samples$reads
+t4<-data.frame(t(t))
+t4$id<-rownames(t4)
+tmp4<-left_join(tmp4,t4, by=c("cluster.id"="id")) # remove NA samples
+write.table(tmp4,"tmp4.txt",row.names = F)
+tmp4.2<-read.delim("tmp4.txt",header=T)
+
+a<-aggregate(tmp4.2[,c(3:276)], by=list(tmp4.2$nitrogen_nitrogen_fixation),data=tmp4.2,FUN = mean)
+
+tmp4.3<-data.frame(t(a[,-1]))
+colnames(tmp4.3)<-a$Group.1
+tmp4.3<-data.frame(tmp4.3,bac_final_samples$samples)
+tmp4.4<-data.frame(tmp4.3[,1:17],t3bis)
+tmp4.4$position<-factor(tmp4.4$position,levels=c("H","M","B","S"))
+
+library(dunn.test)
+#Non-Fixing
+lm10<-kruskal.test(Non.Fixing~position, tmp4.4)
+lm10
+dunn.test(tmp4.4$Non.Fixing,tmp4.4$position, method="bonferroni")
+
+#Fixing
+lm11<-kruskal.test(Fixing~position, tmp4.4)
+lm11
+dunn.test(tmp4.4$Fixing,tmp4.4$position, method="bonferroni")
+
+#NITRIFICATION
+tmp5<-tmp[,c(3,52)]
+rownames(tmp5)<-tmp5$cluster.id
+t<-bac_final_samples$reads
+t5<-data.frame(t(t))
+t5$id<-rownames(t4)
+tmp5<-left_join(tmp5,t5, by=c("cluster.id"="id")) # remove NA samples
+write.table(tmp5,"tmp5.txt",row.names = F)
+tmp5.2<-read.delim("tmp5.txt",header=T)
+tmp5.4$position<-factor(tmp5.4$position,levels=c("H","M","B","S"))
+
+a<-aggregate(tmp5.2[,c(3:276)], by=list(tmp5.2$nitrogen_nitrification),data=tmp5.2,FUN = mean)
+
+tmp5.3<-data.frame(t(a[,-1]))
+colnames(tmp5.3)<-a$Group.1
+tmp5.3<-data.frame(tmp5.3,bac_final_samples$samples)
+tmp5.4<-data.frame(tmp5.3[,1:17],t3bis)
+
+library(dunn.test)
+#Non-Nitrifying
+lm12<-kruskal.test(Non_Nitrifying~position, tmp5.4)
+lm12
+
+#Nitrifying
+lm13<-kruskal.test(Nitrifying~position, tmp5.4)
+lm13
+dunn.test(tmp5.4$Nitrifying,tmp5.4$position, method="bonferroni")
+
+mean(tmp2.4$chemolithoautotroph)
+
+
+#METHYLOTROPHY
+tmp6<-tmp[,c(3,69)]
+rownames(tmp6)<-tmp6$cluster.id
+t<-bac_final_samples$reads
+t6<-data.frame(t(t))
+t6$id<-rownames(t4)
+tmp6<-left_join(tmp6,t6, by=c("cluster.id"="id")) # remove NA samples
+write.table(tmp6,"tmp6.txt",row.names = F)
+tmp6.2<-read.delim("tmp6.txt",header=T)
+
+a<-aggregate(tmp6.2[,c(3:276)], by=list(tmp6.2$faprotax_methylotrophy),data=tmp6.2,FUN = mean)
+
+tmp6.3<-data.frame(t(a[,-1]))
+colnames(tmp6.3)<-a$Group.1
+tmp6.3<-data.frame(tmp6.3,bac_final_samples$samples)
+tmp6.4<-data.frame(tmp6.3[,1:17],t3bis)
+tmp6.4$position<-factor(tmp6.4$position,levels=c("H","M","B","L"))
+
+#Methylotroph
+lm14<-kruskal.test(Methylotrophy~position, tmp6.4)
+lm14
+
+#photolithoautotroph 5.41%
+#copiotroph 38.94%
+#oligotroph 6.71%
+#N-fixing 5.33%
+#Nitrifying 1.67%
+```
+```{r bac_plot_functional}
+g.bac.1<-ggplot(tmp2.4,aes(x=position, y=photolithoautotroph))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,0.3)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  ylab(label="Photolithoautotroph")+
+  annotate("text",x=2,y=0.3,label="Kruskal-Wallis, p<0.001")+
+  annotate("text",x=1,y=0.28,label="a")+
+  annotate("text",x=2,y=0.28,label="a")+
+  annotate("text",x=3,y=0.28,label="a")+
+  annotate("text",x=4,y=0.28,label="b")+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+  
+g.bac.2<-ggplot(tmp3.4,aes(x=position, y=copiotroph))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,0.3)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  ylab(label="Copiotroph")+
+  annotate("text",x=2,y=0.3,label="Kruskal-Wallis, p<0.001")+
+  annotate("text",x=1,y=0.28,label="a")+
+  annotate("text",x=2,y=0.28,label="a")+
+  annotate("text",x=3,y=0.28,label="ab")+
+  annotate("text",x=4,y=0.28,label="b")+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))  
+  
+g.bac.3<-ggplot(tmp3.4,aes(x=position, y=oligotroph))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,0.3)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  ylab(label="Oligotroph")+
+  annotate("text",x=2,y=0.3,label="Kruskal-Wallis, p<0.001")+
+  annotate("text",x=1,y=0.28,label="a")+
+  annotate("text",x=2,y=0.28,label="a")+
+  annotate("text",x=3,y=0.28,label="a")+
+  annotate("text",x=4,y=0.28,label="b")+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+
+
+g.bac.4<-ggplot(tmp4.4,aes(x=position, y=Fixing))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,0.5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  annotate("text",x=2,y=0.5,label="Kruskal-Wallis, p<0.001")+
+  annotate("text",x=1,y=0.48,label="a")+
+  annotate("text",x=2,y=0.48,label="a")+
+  annotate("text",x=3,y=0.48,label="a")+
+  annotate("text",x=4,y=0.48,label="b")+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))+
+  ylab("N-fixing")
+  
+
+g.bac.5<-ggplot(tmp5.4,aes(x=position, y=Nitrifying))+
+  geom_boxplot(outlier.shape = NA)+
+  ylim(0,0.5)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank())+
+  annotate("text",x=2,y=0.5,label="Kruskal-Wallis, p<0.001")+
+  annotate("text",x=1,y=0.48,label="a")+
+  annotate("text",x=2,y=0.48,label="a")+
+  annotate("text",x=3,y=0.48,label="a")+
+  annotate("text",x=4,y=0.48,label="b")+
+  scale_x_discrete(breaks=c("H","M","B","S"),labels=c("H","M","B","L"))
+
+
+plot_grid(g1.f,g2.f,g3.f,g.bac.1,g.bac.2,g.bac.3,g.bac.4,g.bac.5,ncol=4,nrow=2, labels="AUTO")
+```
+
+
+#LEAF TRAITS VARIATION
+
+```{r meteo}
+temp<-read.delim("Vertige_temp.txt",header=T)
+temp<-temp[which(temp$position != "S"),]
+par<-read.delim("Vertige_PAR.txt",header=T)
+par<-par[which(par$Position != "S"),]
+par<-droplevels.data.frame(par[which(par$Position != "S_dz"),])
+par<-par[-13,]
+```
+
+```{r leaf_trait_lm, eval=FALSE}
+tt<-tmp6[which(tmp6$epi_endo %in% "endo"),]
+tmp_leaf=dplyr::select(tt,carre,arbre,binom,position,feuille,samples, sample_id,position_leave=epi_endo,x=x.utm,y=y.utm,chloro=Chloro.microg.cm2,thickness=THICKNESS.microm,ldmc=LDMC.mg.g,leaf.area=Leaf.area.cm2,lma=LMA.g.m2,ccm=CCm.gGluc.gMS,lwc=leaf.water.content,C=C.gC.gMS,N=N.gN.gMS,Ca, Ash, Cu,Fe, Mg,Mn,C.N,P,K,Na, Zn,SD=stomatal.density)
+
+##test normality of variables
+shapiro.test(tmp_leaf$chloro) # p-value = 0.2831 normal
+shapiro.test(tmp_leaf$thickness)#non normal
+shapiro.test(tmp_leaf$ldmc)#normal
+shapiro.test(tmp_leaf$leaf.area)#non normal
+shapiro.test(tmp_leaf$lma)#non normal
+shapiro.test(tmp_leaf$ccm)#non normal
+shapiro.test(tmp_leaf$lwc)#normal
+shapiro.test(tmp_leaf$C)#non normal
+shapiro.test(tmp_leaf$N)#normal
+shapiro.test(tmp_leaf$C.N)#non normal
+shapiro.test(tmp_leaf$Ca)#non normal
+shapiro.test(tmp_leaf$Ash)#non normal
+shapiro.test(tmp_leaf$Cu)#non normal
+shapiro.test(tmp_leaf$Fe)#non normal
+shapiro.test(tmp_leaf$Mg)#non normal
+shapiro.test(tmp_leaf$Mn)#non normal
+shapiro.test(tmp_leaf$P)#non normal
+shapiro.test(tmp_leaf$K)#non normal
+shapiro.test(tmp_leaf$Na)#non normal
+shapiro.test(tmp_leaf$Zn) #non normal
+shapiro.test(tmp_leaf$SD) #non normal
+
+#package MASS , transformer les data avec boxcox, recuperer les y pour reinjecter dans le data.frame samples
+# chloro NORMAL
+# thickness
+bc<-boxcox(tmp_leaf$thickness~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## -0.9090909
+new_model <- lm(((tmp_leaf$thickness^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_thickness<-(tmp_leaf$thickness^lambda-1)/lambda
+
+# ldmc
+bc<-boxcox(tmp_leaf$ldmc~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##  0.9090909
+new_model <- lm(((tmp_leaf$ldmc^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_ldmc<-(tmp_leaf$ldmc^lambda-1)/lambda
+
+# leaf.area
+bc<-boxcox(tmp_leaf$leaf.area~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##   0.1818182
+new_model <- lm(((tmp_leaf$leaf.area^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_leaf.area<-(tmp_leaf$leaf.area^lambda-1)/lambda
+
+# lma
+bc<-boxcox(tmp_leaf$lma~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##   -0.4646465
+new_model <- lm(((tmp_leaf$lma^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_lma<-(tmp_leaf$lma^lambda-1)/lambda
+
+# ccm
+bc<-boxcox(tmp_leaf$ccm~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##   2
+new_model <- lm(((tmp_leaf$ccm^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_ccm<-(tmp_leaf$ccm^lambda-1)/lambda
+
+# lwc
+bc<-boxcox(tmp_leaf$lwc~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##  0.9090909
+new_model <- lm(((tmp_leaf$lwc^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_lwc<-(tmp_leaf$lwc^lambda-1)/lambda
+
+# C
+bc<-boxcox(tmp_leaf$C~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 2
+new_model <- lm(((tmp_leaf$C^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_C<-(tmp_leaf$C^lambda-1)/lambda
+
+# N
+bc<-boxcox(tmp_leaf$N~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 1.474747
+new_model <- lm(((tmp_leaf$N^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_N<-(tmp_leaf$N^lambda-1)/lambda
+
+# Ca
+bc<-boxcox(tmp_leaf$Ca~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##  -0.1818182
+new_model <- lm(((tmp_leaf$Ca^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Ca<-(tmp_leaf$Ca^lambda-1)/lambda
+
+
+# Cu
+bc<-boxcox(tmp_leaf$Cu~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.5050505
+new_model <- lm(((tmp_leaf$Cu^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Cu<-(tmp_leaf$Cu^lambda-1)/lambda
+
+
+# Fe
+bc<-boxcox(tmp_leaf$Fe~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.4646465
+new_model <- lm(((tmp_leaf$Fe^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Fe<-(tmp_leaf$Fe^lambda-1)/lambda
+
+
+# Mg
+bc<-boxcox(tmp_leaf$Mg~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.06060606
+new_model <- lm(((tmp_leaf$Mg^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Mg<-(tmp_leaf$Mg^lambda-1)/lambda
+
+# Mn
+bc<-boxcox(tmp_leaf$Mn~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##0.3030303
+new_model <- lm(((tmp_leaf$Mn^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Mn<-(tmp_leaf$Mn^lambda-1)/lambda
+
+# C.N
+bc<-boxcox(tmp_leaf$C.N~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.7878788
+new_model <- lm(((tmp_leaf$C.N^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_C.N<-(tmp_leaf$C.N^lambda-1)/lambda
+
+# P
+bc<-boxcox(tmp_leaf$P~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.7878788
+new_model <- lm(((tmp_leaf$P^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_P<-(tmp_leaf$P^lambda-1)/lambda
+
+# K
+bc<-boxcox(tmp_leaf$K~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.1818182
+new_model <- lm(((tmp_leaf$K^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_K<-(tmp_leaf$K^lambda-1)/lambda
+
+# Na
+bc<-boxcox(tmp_leaf$Na~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.3838384
+new_model <- lm(((tmp_leaf$Na^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Na<-(tmp_leaf$Na^lambda-1)/lambda
+
+# Zn
+bc<-boxcox(tmp_leaf$Zn~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.5050505
+new_model <- lm(((tmp_leaf$Zn^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Zn<-(tmp_leaf$Zn^lambda-1)/lambda
+
+#SD
+bc<-boxcox(tmp_leaf$SD~tmp_leaf$position)
+(lambda <- bc$x[which.max(bc$y)])
+##-0.5050505
+new_model <- lm(((tmp_leaf$SD^lambda-1)/lambda) ~ tmp_leaf$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_SD<-(tmp_leaf$SD^lambda-1)/lambda
+
+#tmp data.frame with normalized data
+tmp_norm<-data.frame(tmp_leaf[,c(1:11)])
+tmp_norm<-mutate(tmp_norm,norm_thickness=norm_thickness,norm_ldmc=norm_ldmc,norm_leaf.area=norm_leaf.area,norm_lma=norm_lma,norm_ccm=norm_ccm,norm_lwc=norm_lwc,norm_C=norm_C,norm_N=norm_N,norm_Ca=norm_Ca,norm_Cu=norm_Cu,norm_Fe=norm_Fe,norm_Mg=norm_Mg,norm_Mn=norm_Mn,norm_C.N=norm_C.N,norm_P=norm_P,norm_K=norm_K,norm_Na=norm_Na,norm_Zn=norm_Zn,norm_SD=norm_SD)
+
+##variation in the canopy
+lm_chloro<-aov(chloro~position*binom, data=tmp_norm)
+summary(lm_chloro)
+
+#Coefficients:
+#               Df Sum Sq Mean Sq F value Pr(>F)   
+#position         2    947   473.3   3.416 0.0362 * 
+#binom            2   1693   846.7   6.110 0.0030 **
+#position:binom   4    449   112.3   0.810 0.5211   
+#Residuals      116  16074   138.6       
+
+
+lm_thickness<-aov(norm_thickness~position*binom, data=tmp_norm)
+summary(lm_thickness)
+
+#Coefficients:
+#     Df    Sum Sq   Mean Sq F value Pr(>F)    
+#position         2 1.064e-05 5.320e-06   4.741 0.0105 *  
+#binom            2 1.370e-04 6.852e-05  61.052 <2e-16 ***
+#position:binom   4 7.210e-06 1.800e-06   1.605 0.1776    
+#Residuals      116 1.302e-04 1.120e-06     
+
+lm_ldmc<-aov(norm_ldmc~position*binom, data=tmp_norm)
+summary(lm_ldmc)
+#Coefficients:
+#   Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         2   9836    4918  11.080 3.95e-05 ***
+#binom            2 162921   81461 183.535  < 2e-16 ***
+#position:binom   4   1302     326   0.734    0.571    
+#Residuals      116  51486     444          
+
+lm_SD<-aov(norm_SD ~position*binom, data=tmp_norm)
+summary(lm_SD)
+
+#   Df  Sum Sq Mean Sq F value   Pr(>F)    
+#position         2 0.01632 0.00816  14.761 2.07e-06 ***
+#binom            2 0.15329 0.07665 138.686  < 2e-16 ***
+#position:binom   4 0.00521 0.00130   2.355   0.0581 .  
+#Residuals      111 0.06134 0.00055  
+
+lm_leaf.area<-aov(norm_leaf.area~position*binom, data=tmp_norm)
+summary(lm_leaf.area)
+
+#Coefficients:
+#                Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         2  17.52    8.76  11.478 2.83e-05 ***
+#binom            2 109.57   54.79  71.798  < 2e-16 ***
+#position:binom   4   1.14    0.29   0.374    0.827    
+#Residuals      116  88.52    0.76          
+#Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+lm_lma<-aov(norm_lma~position*binom, data=tmp_norm)
+summary(lm_lma)
+
+#Coefficients:
+# Df  Sum Sq  Mean Sq F value   Pr(>F)    
+#position         2 0.01767 0.008834  15.132 1.45e-06 ***
+#binom            2 0.03539 0.017694  30.310 2.57e-11 ***
+#position:binom   4 0.00246 0.000616   1.055    0.382    
+#Residuals      116 0.06772 0.000584 
+
+lm_ccm<-aov(norm_ccm~position*binom, data=tmp_norm)
+summary(lm_ccm)
+
+#Coefficients:
+#                Df Sum Sq Mean Sq F value Pr(>F)    
+#position         2  0.104  0.0522   4.261 0.0164 *  
+#binom            2  3.214  1.6068 131.148 <2e-16 ***
+#position:binom   4  0.139  0.0347   2.834 0.0276 *  
+#Residuals      116  1.421  0.0123
+
+lm_lwc<-aov(norm_lwc~position*binom, data=tmp_norm)
+summary(lm_lwc)
+
+#Coefficients:
+#   Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         2  142.0    71.0  11.058 4.02e-05 ***
+#binom            2 2302.7  1151.3 179.356  < 2e-16 ***
+#position:binom   4   20.5     5.1   0.798    0.529    
+#Residuals      116  744.6     6.4        
+
+lm_C<-aov(norm_C~position*binom, data=tmp_norm)
+summary(lm_C)
+
+#Coefficients:
+# Df Sum Sq Mean Sq F value Pr(>F)    
+#position         2 0.0075  0.0037   0.835 0.4364    
+#binom            2 0.9905  0.4952 110.747 <2e-16 ***
+#position:binom   4 0.0378  0.0094   2.112 0.0837 .  
+#Residuals      116 0.5187  0.0045 
+
+lm_N<-aov(norm_N~position*binom, data=tmp_norm)
+summary(lm_N)
+
+#Coefficients:
+#                 Df    Sum Sq   Mean Sq F value Pr(>F)    
+#position         2 1.038e-06 5.190e-07   4.679 0.0111 *  
+#binom            2 2.043e-05 1.022e-05  92.151 <2e-16 ***
+#position:binom   4 6.180e-07 1.550e-07   1.394 0.2404    
+#Residuals      116 1.286e-05 1.110e-07
+
+lm_Ca<-aov(norm_Ca~position*binom, data=tmp_norm)
+summary(lm_Ca)
+
+#Coefficients:
+#Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3  2.081   0.694   14.46 2.67e-08 ***
+#binom            2  6.587   3.293   68.67  < 2e-16 ***
+#position:binom   6  0.843   0.141    2.93  0.00994 ** 
+#Residuals      146  7.002   0.048  
+
+lm_Cu<-aov(norm_Cu~position*binom, data=tmp_norm)
+summary(lm_Cu)
+
+#Coefficients:
+#               Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3   3.67    1.22   1.515 0.212982    
+#binom            2 161.47   80.73 100.019  < 2e-16 ***
+#position:binom   6  20.15    3.36   4.160 0.000686 ***
+#Residuals      146 117.85    0.81 
+
+lm_Fe<-aov(norm_Fe~position*binom, data=tmp_norm)
+summary(lm_Fe)
+
+#Coefficients:
+#Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3 0.5186 0.17287  64.469  < 2e-16 ***
+#binom            2 0.0726 0.03630  13.537 4.05e-06 ***
+#position:binom   6 0.0455 0.00758   2.829   0.0124 *  
+#Residuals      146 0.3915 0.00268        
+
+lm_Mn<-aov(norm_Mn~position*binom, data=tmp_norm)
+summary(lm_Mn)
+
+#Coefficients:
+#Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3  177.0    59.0   9.466 9.37e-06 ***
+#binom            2 2703.1  1351.6 216.793  < 2e-16 ***
+#position:binom   6  273.1    45.5   7.300 7.78e-07 ***
+#Residuals      146  910.2     6.2            
+
+lm_Mg<-aov(norm_Mg~position*binom, data=tmp_norm)
+summary(lm_Mg)
+
+#Coefficients:
+# Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3  0.195  0.0650   0.913    0.436    
+#binom            2  2.826  1.4130  19.855 2.36e-08 ***
+#position:binom   6  2.224  0.3707   5.209 6.93e-05 ***
+#Residuals      146 10.390  0.0712       
+
+lm_C.N<-aov(norm_C.N~position*binom, data=tmp_norm)
+summary(lm_C.N)
+
+#Coefficients:
+#Df   Sum Sq  Mean Sq F value Pr(>F)    
+#position         3 0.008530 0.002843  34.738 <2e-16 ***
+#binom            2 0.007984 0.003992  48.772 <2e-16 ***
+#position:binom   6 0.001264 0.000211   2.574  0.021 *  
+#Residuals      152 0.012441 0.000082  
+
+lm_P<-aov(norm_P~position*binom, data=tmp_norm)
+summary(lm_P)
+
+#Coefficients:
+#Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3 11.924   3.975  75.739  < 2e-16 ***
+#binom            2  6.080   3.040  57.928  < 2e-16 ***
+#position:binom   6  2.087   0.348   6.628 3.24e-06 ***
+#Residuals      146  7.662   0.052      
+
+lm_K<-aov(norm_K~position*binom, data=tmp_norm)
+summary(lm_K)
+
+#Coefficients:
+#                Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3  47.52  15.841  40.072  < 2e-16 ***
+#binom            2   6.97   3.487   8.821 0.000242 ***
+#position:binom   6  28.21   4.702  11.894 7.64e-11 ***
+#Residuals      146  57.72   0.395  
+
+lm_Na<-aov(norm_Na~position*binom, data=tmp_norm)
+summary(lm_Na)
+
+#Coefficients:
+#               Df Sum Sq Mean Sq F value   Pr(>F)    
+#position         3   0.48  0.1599   0.419    0.740    
+#binom            2   1.59  0.7926   2.077    0.129    
+#position:binom   6  11.65  1.9423   5.090 8.98e-05 ***
+#Residuals      146  55.71  0.3816     
+
+lm_Zn<-aov(norm_Zn~position*binom, data=tmp_norm)
+summary(lm_Zn)
+
+#Coefficients:
+#                Df Sum Sq  Mean Sq F value   Pr(>F)    
+#position         3 0.0391 0.013024   3.198  0.02527 *  
+#binom            2 0.0401 0.020038   4.921  0.00855 ** 
+#position:binom   6 0.1280 0.021327   5.237 6.52e-05 ***
+#Residuals      146 0.5945 0.004072  
+
+lm_SD<-aov(norm_SD~position*binom, data=tmp_norm)
+summary(lm_SD)
+#Coefficients:
+#               Df  Sum Sq Mean Sq F value   Pr(>F)    
+#position         2 0.01632 0.00816  14.761 2.07e-06 ***
+#binom            2 0.15329 0.07665 138.686  < 2e-16 ***
+#position:binom   4 0.00521 0.00130   2.355   0.0581 .  
+#Residuals      111 0.06134 0.00055   
+```
+
+```{r leaf_plots.position, eval=FALSE}
+# for morpho trait only with HMB
+#tmp_leaf without "L" and "S" because no data
+tmp_leaf_short<-tmp_leaf[which(!(tmp_leaf$position %in% "L")),]
+tmp_leaf_short$position<-factor(tmp_leaf_short$position,levels=c("H","M","B","S"))
+
+g7<-ggplot(tmp_leaf_short,aes(x=binom, y=chloro,fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Chlorophyll")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  annotate("text",x=2,y=100,label="ANOVA,Host **",fontface="bold")+
+  annotate("text",x=2,y=97,label="Position *",fontface="bold")+
+  annotate("text",x=2,y=94,label="Host x Position NS",fontface="bold")
+  
+  
+g8<-ggplot(tmp_leaf_short,aes(x=binom, y=thickness, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Thickness")+
+  annotate("text",x=2,y=290,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=285,label="Position *",fontface="bold")+
+  annotate("text",x=2,y=280,label="Host x Position NS",fontface="bold")
+
+g9<-ggplot(tmp_leaf_short,aes(x=binom, y=ldmc, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("LDMC")+
+  annotate("text",x=2,y=600,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=590,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=580,label="Host x Position NS",fontface="bold")
+
+g10<-ggplot(tmp_leaf_short,aes(x=binom, y=leaf.area, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Leaf Area")+
+  annotate("text",x=2,y=550,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=530,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=510,label="Host x Position NS",fontface="bold")
+
+g11<-ggplot(tmp_leaf_short,aes(x=binom, y=lma, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("LMA")+
+  annotate("text",x=2,y=160,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=155,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=150,label="Host x Position NS",fontface="bold")
+
+g12<-ggplot(tmp_leaf_short,aes(x=binom, y=ccm, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("CCM")+
+  annotate("text",x=2,y=2,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=1.97,label="Position *",fontface="bold")+
+  annotate("text",x=2,y=1.94,label="Host x Position *",fontface="bold")
+
+g13<-ggplot(tmp_leaf_short,aes(x=binom, y=lwc, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("LWC")+
+  annotate("text",x=2,y=80,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=78,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=76,label="Host x Position NS",fontface="bold")
+
+g14<-ggplot(tmp_leaf_short,aes(x=binom, y=SD, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Stomatal density")+
+  annotate("text",x=2,y=1.6e+05,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=1.55e+05,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=1.50e+05,label="Host x Position NS",fontface="bold")
+
+g15<-ggplot(tmp_leaf_short,aes(x=binom, y=C,fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Carbon")+
+  annotate("text",x=2,y=0.60,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=0.59,label="Position NS",fontface="bold")+
+  annotate("text",x=2,y=0.58,label="Host x Position NS",fontface="bold")
+
+g16<-ggplot(tmp_leaf_short,aes(x=binom, y=N, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Nitrogen")+
+  annotate("text",x=2,y=0.030,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=0.029,label="Position *",fontface="bold")+
+  annotate("text",x=2,y=0.028,label="Host x Position NS",fontface="bold")
+
+g17<-ggplot(tmp_leaf_short,aes(x=binom, y=C.N, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("C.N")+
+  ylim(15,55)+
+  annotate("text",x=2,y=50,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=48,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=46,label="Host x Position *",fontface="bold")
+
+g18<-ggplot(tmp_leaf_short,aes(x=binom, y=P,fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Phosphorus")+
+  annotate("text",x=2,y=2,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=1.9,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=1.8,label="Host x Position ***",fontface="bold")
+
+g19<-ggplot(tmp_leaf_short,aes(x=binom, y=K, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Potassium")+
+  annotate("text",x=2,y=20,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=19,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=18,label="Host x Position ***",fontface="bold")
+
+g20<-ggplot(tmp_leaf_short,aes(x=binom, y=Na, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Sodium")+
+  annotate("text",x=2,y=5,label="ANOVA,Host NS",fontface="bold")+
+  annotate("text",x=2,y=4.8,label="Position NS",fontface="bold")+
+  annotate("text",x=2,y=4.6,label="Host x Position NS",fontface="bold")
+
+g21<-ggplot(tmp_leaf_short,aes(x=binom, y=Zn, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Zinc")+
+  ylim(0,30)+
+  annotate("text",x=2,y=30,label="ANOVA,Host **",fontface="bold")+
+  annotate("text",x=2,y=29,label="Position *",fontface="bold")+
+  annotate("text",x=2,y=28,label="Host x Position ***",fontface="bold")
+
+g22<-ggplot(tmp_leaf_short,aes(x=binom, y=Ca, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Calcium")+
+  ylim(0,30)+
+  annotate("text",x=2,y=30,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=29,label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=28,label="Host x Position **",fontface="bold")
+
+g23<-ggplot(tmp_leaf_short,aes(x=binom, y=Cu, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Copper")+
+  annotate("text",x=2,y=25,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=24,label="Position NS",fontface="bold")+
+  annotate("text",x=2,y=23,label="Host x Position ***",fontface="bold")
+
+g24<-ggplot(tmp_leaf_short,aes(x=binom, y=Fe, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Iron")+
+  ylim(0,170)+
+  annotate("text",x=2,y=170,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=166, label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=162,label="Host x Position *",fontface="bold")
+
+g25<-ggplot(tmp_leaf_short,aes(x=binom, y=Mn, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Manganese")+
+  ylim(0,800)+
+  annotate("text",x=2,y=800,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=770, label="Position ***",fontface="bold")+
+  annotate("text",x=2,y=740,label="Host x Position ***",fontface="bold")
+
+g26<-ggplot(tmp_leaf_short,aes(x=binom, y=Mg, fill=position))+
+  geom_boxplot(outlier.colour = "white")+
+  scale_fill_manual(values=c("white","azure3","azure4","darkslategray"))+
+  scale_x_discrete(breaks=c("Eperua_falcata", "Macrolobium_bifolium","Tetragastris_sp"),labels=c("E.f","M.b", "T.sp") )+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),legend.position = "none",axis.title.y = element_text(size=12), axis.text.x = element_text(size =12))+
+  ylab("Magnesium")+
+  annotate("text",x=2,y=7,label="ANOVA,Host ***",fontface="bold")+
+  annotate("text",x=2,y=6.8, label="Position ",fontface="bold")+
+  annotate("text",x=2,y=6.6,label="Host x Position ***",fontface="bold")
+
+cowplot::plot_grid(g8,g9,g10,g11,g12,g13,g14,g7,nrow=2,ncol=4)
+cowplot::plot_grid(g15,g16,g17,g22,g23,g24,g25,g26,g18,g19,g20,g21,nrow=3,ncol=4)
+
+
+```
+
+```{r leaf_morpho_chemistry}
+# for morpho trait only with HMB
+#tmp_leaf without "L" and "S" because no data
+tmp_leaf_short<-tmp_leaf[which(!(tmp_leaf$position %in% "L")),]
+tmp_leaf_short$position<-factor(tmp_leaf_short$position,levels=c("H","M","B","S"))
+colnames(tmp_leaf_short)<-c("carre","arbre","Host species","Position","feuille","Samples","sample_id","position_leave","x","y","Chlorophyll","Thickness","LDMC","Leaf Area","LMA","CCM","LWC","C","N","Ca","Ash","Cu","Fe","Mg","Mn","C.N","P","K","Na","Zn","SD")
+# PCA
+#if missing value in your table : estimate the number of dimensions for the PCA 
+nb<-estim_ncpPCA(tmp_leaf_short[,c(11:31)])
+# impute dataset without missing value
+imputed<-imputePCA(tmp_leaf_short[,c(11:31)],ncp=nb$ncp,method = "Regularized")
+#pca
+pca_leaftraits<-PCA(imputed$completeObs,ncp=5,scale.unit=T,graph=F)
+
+
+#correlation plot between chemical and functional leaf traits
+morpho_cor<-cor(imputed$completeObs,method="pearson",use = "complete.obs")
+p.mat<-cor.mtest(morpho_cor,method="pearson",conf.level=0.95)
+corrplot(morpho_cor,sig.level = 0.05,type="lower")
+
+# PCA plots examples with vizualisation of the variables (fviz_pca_ind() and fviz_pca_biplot() also exist for indivudals and biplot of individuals and variables)
+sp<-tmp_leaf$binom
+g1<-fviz_pca_var(pca_leaftraits, axes=c(1,2),repel = TRUE,title="")+
+  theme_bw()+
+  theme(legend.position = "bottom",axis.title = element_text(size=8),axis.text = element_text(size=6),legend.text=element_text(size=6),legend.title = element_text(size=6))
+
+df<-data.frame(pca_leaftraits$ind$coord)
+g2<-ggplot(df,aes(x=Dim.1,y=Dim.2,group=tmp_leaf_short$`Host species`))+
+  geom_point(aes(shape=factor(tmp_leaf_short$`Host species`)),size=4)+
+  theme_bw()+
+  labs(x="Dim1 (40.9%)",y="Dim2 16.3%)")
+
+g2<-fviz_pca_biplot(pca_leaftraits,axes=c(1,2),geom="point",geom.var =c("text", "arrow"),col.ind = "grey",col.var = "black",repel = TRUE,title = "",labelsize=6)+
+  theme_bw()+
+  theme(axis.title = element_text(size=14), panel.grid = element_blank())
+
+
+plot_grid(g1,g2)
+```
+
+
+# H1 - relative contribution of env, leaf and space on communities
+
+##FUNGI
+
+###PCNM CALCULATION FOR FUNGI
+Produce MEM to take into account of spatial variability for epi and endo
+```{r mem, echo=FALSE,eval=FALSE}
+library(devtools)
+install_github("sdray/adespatial")
+library("adespatial")
+#S position removed see above
+
+#ENDOPHYTES
+tmp_leaf_endo<-fungi_final_samples_endo$samples
+#compute mem
+mem_endo<-dbmem(tmp_leaf_endo[,9:10],MEM.autocor = "non-null")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem_endo, nrepet = 999) # 7 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp_leaf_endo[,9:10]) - 1), col="red")
+
+tmp_leaf_endo<-data_frame(tmp_leaf_endo,mem_endo[,c(1:7)])
+
+
+#EPIPHYTES
+tmp_leaf_epi<-fungi_final_samples_epi$samples
+
+#compute mem
+mem_epi<-dbmem(tmp_leaf_epi[,9:10],MEM.autocor = "all")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem_epi, nrepet = 999) # 7 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp_leaf_epi[,9:10]) - 1), col="red")
+
+tmp_leaf_epi<-data_frame(tmp_leaf_epi,mem_epi[,c(1:7)])
+```
+
+###alpha and beta-diversity
+
+```{r fungi_alpha_beta, echo=FALSE,eval=FALSE}
+#ENDO
+#rarefaction curves
+alpha_fungi<-hill_rarefaction(fungi_final_samples,nboot=20,nsteps=10)
+
+p<-gghill_rarefaction(alpha_fungi, group=NULL)
+
+#Hill numbers
+#alpha_fungi<-hill_taxa(fungi_final_samples$reads,q=1)
+
+#plots
+#boxplot(alpha_fungi~tmp_leaf2$position)
+#boxplot(alpha_fungi~tmp_leaf2$binom)
+#boxplot(alpha_fungi~tmp_leaf2$position_leave)
+
+# ENDOPHYTES
+summary_metabarlist(fungi_final_samples_endo)
+#$dataset_dimension
+#        n_row n_col
+#reads     155  8562
+#motus    8562    13
+#pcrs      155    11
+#samples   155    31
+#
+#$dataset_statistics
+#        nb_reads nb_motus avg_reads sd_reads avg_motus sd_motus
+#pcrs      534949     8562  3451.284 2438.412     246.6 167.7852
+#samples   534949     8562  3451.284 2438.412     246.6 167.7852
+
+##endo alpha-div - Hill numbers
+alpha_fungi_endo<-hill_taxa(fungi_final_samples_endo$reads,q=1)
+tmp_leaf_endo$Shannon<-alpha_fungi_endo
+
+##endo beta-div - (Hellinger, Horn)
+t<-data.frame(t(fungi_final_samples_endo$reads))
+fun_dist_endo<-vegdist(decostand(t,method="hellinger"),"bray")
+
+
+# EPIPHYTES
+summary_metabarlist(fungi_final_samples_epi)
+#$dataset_dimension
+#        n_row n_col
+#reads     134  8502
+#motus    8502    13
+#pcrs      134    11
+#samples   134    31
+#
+#$dataset_statistics
+#        nb_reads nb_motus avg_reads sd_reads avg_motus sd_motus
+#pcrs      492093     8502  3672.336 2357.101  251.8358 167.9098
+#samples   492093     8502  3672.336 2357.101  251.8358 167.9098
+
+##epi alpha-div - Hill numbers
+alpha_fungi_epi<-hill_taxa(fungi_final_samples_epi$reads,q=1)
+tmp_leaf_epi$Shannon<-alpha_fungi_epi
+
+##epi beta-div - (Hellinger, Horn)
+t<-data.frame(t(fungi_final_samples_epi$reads))
+fun_dist_epi<-vegdist(decostand(t,method="hellinger"),"horn")
+
+
+#rarefaction curves fungi
+a_f<-specaccum(fungi_final_samples$reads,method="rarefaction")
+a_f.df<-data.frame(a_f$sites,a_f$richness)
+g_af<-ggplot(a_f.df,aes(x=a_f.sites,y=a_f.richness))+
+  geom_line()+
+  labs(x="Sites",y="Number of reads", title="Fungi")+
+  ylim(0,10000)
+
+```
+
+###RELATIVE CONTRIBUTION OF SPACE, POSITION HOST AND LEAF TRAITS
+```{r alpha_div}
+# ENDOPHYTES
+#lm
+# first model with all mem and binom as random effects 
+#test normality shannon
+
+ggqqplot(tmp_leaf_endo$Shannon)
+ggdensity(tmp_leaf_endo$Shannon)
+shapiro.test(tmp_leaf_endo$Shannon) # non normal p-value<0.0001
+#transform Shannon to meet normality
+bc<-boxcox(tmp_leaf_endo$Shannon~tmp_leaf_endo$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.14141
+new_model <- lm(((tmp_leaf_endo$Shannon^lambda-1)/lambda) ~ tmp_leaf_endo$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+tmp_leaf_endo$norm_Shannon<-(tmp_leaf_endo$Shannon^lambda-1)/lambda
+
+
+#bac_mod1<-aov(norm_Shannon~binom*position+MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7,tmp_leaf_endo)
+#summary(bac_mod1)  #MEM1 and MEM4 is significant at 0.001
+
+#bac_mod3<-lm(norm_Shannon~+binom*position+MEM1+MEM4, tmp_leaf_endo)
+#anova (bac_mod3)
+#summary(bac_mod3)
+
+#               numDF denDF   F-value p-value
+#(Intercept)     1   122 185.96076  <.0001
+#position        3   122   0.08419  0.9686
+#MEM1            1   122   8.10578  0.0052
+
+#rsquare3<-r.squaredGLMM(bac_mod3) # 0.1482
+
+# stepwise model AIC
+env2 <- tmp_leaf_endo[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+env2<-data.frame(tmp_leaf_endo[,c(3,4, 32:38,40)],env2)
+
+#correlation between leaf traits
+corr_endo<-cor(env2[,-c(1:10)],method="spearman")
+p.mat=cor.mtest(env2[,-c(1:10)],conf.level=0.95)
+corrplot(corr_endo,type="upper",order="hclust",p.mat=p.mat$p,insig="blank")
+
+#check collinearity with VIF (<5)
+fun_lm<-lm(norm_Shannon~., env2)
+vif(fun_lm) #remove LDMC, LWC, C, CCM
+fun_lm<-lm(norm_Shannon~., env2[,-c(13,16,17,18)])
+vif(fun_lm) # <5
+fun_lm.step<-stepAIC(fun_lm,direction="both")
+summary(fun_lm.step)
+
+# EPIPHYTES
+# first model with all mem and binom as random effects 
+#test normality shannon
+
+ggqqplot(tmp_leaf_epi$Shannon)
+ggdensity(tmp_leaf_epi$Shannon)
+shapiro.test(tmp_leaf_epi$Shannon) # non normal p-value<0.0001
+#transform Shannon to meet normality
+bc<-boxcox(tmp_leaf_epi$Shannon~tmp_leaf_epi$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.22
+new_model <- lm(((tmp_leaf_epi$Shannon^lambda-1)/lambda) ~ tmp_leaf_epi$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+tmp_leaf_epi$norm_Shannon<-(tmp_leaf_epi$Shannon^lambda-1)/lambda
+
+
+#bac_mod2<-aov(norm_Shannon~binom*position+MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7,tmp_leaf_epi)
+#summary(bac_mod2) 
+#anova(bac_mod2) #1 significant MEM4
+
+#bac_mod4<-lme(norm_Shannon~position+MEM4,random=~1|binom,tmp_leaf_epi)
+#anova (bac_mod4)
+#summary(bac_mod4)
+
+# stepwise model AIC epi
+env3 <- tmp_leaf_epi[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+env3<-data.frame(tmp_leaf_epi[,c(3,4, 32:38,40)],env3)
+
+#correlation between leaf traits
+corr_epi<-cor(env3[,-c(1:10)],method="spearman")
+p.mat=cor.mtest(env3[,-c(1:10)],conf.level=0.95)
+corrplot(corr_epi,type="upper",order="hclust",p.mat=p.mat$p,insig="blank")
+
+#check collinearity with VIF on lm (<5)
+fun_lm_epi<-lm(norm_Shannon~., env3)
+vif(fun_lm_epi) #remove LDMC,CCM,LWC, C
+fun_lm_epi<-lm(norm_Shannon~., env3[,-c(13,16,17,18)])
+fun_lm.step_epi<-stepAIC(fun_lm_epi,direction="both")
+vif(fun_lm.step_epi) # <10
+summary(fun_lm.step_epi)
+
+```
+Endo and Epi fungi = no effect of postion in the canopy (or indirect ? look at variation of traits), MEM ++, some leaf traits (host effect)
+
+```{r beta_div}
+# ENDOPHYTES
+##dbRDA
+ado_fungi_endo<-dbrda(fun_dist_endo$TD_beta~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env2)
+# test if significant
+anova(ado_fungi_endo) #p=0.001 --> select variables with ordi2step
+
+#test with ordi2step
+# compute morista-horn dissimilarity matrix ith HillR packahe to stay in Hill number format , q==1 
+fun_dist_endo<-hill_taxa_parti_pairwise(fungi_final_samples_endo$reads,q=1,output="matrix", pairs = "full")
+fun_rda.vasc.0 <- dbrda (fun_dist_endo$TD_beta~ 1, data = env2) # model containing only species matrix and intercept
+fun_rda.vasc.all <- dbrda (fun_dist_endo$TD_beta ~ ., data = env2[,-10]) # model including all variables from matrix chem1 
+#check collinearity with VIF.cca (<10)
+vif.cca(fun_rda.vasc.all) #all variables below 10
+fun_sel.osR2 <- ordiR2step (fun_rda.vasc.0, scope = formula (fun_rda.vasc.all), direction = c("both", "backward", "forward"))
+vif.cca(fun_sel.osR2)
+fun_sel.osR2$anova
+
+
+# EPIPHYTES
+##dbRDA
+ado_fungi_epi<-dbrda(vegdist(decostand(fungi_final_samples_epi$reads,"hellinger"),"bray")~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env3)
+
+#test if significant
+anova(ado_fungi_epi) #p=0.003 significant
+
+#test with ordi2step
+# compute morista-horn dissimilarity matrix ith HillR packahe to stay in Hill number format , q==1 
+fun_dist_epi<-hill_taxa_parti_pairwise(fungi_final_samples_epi$reads,q=1,output="matrix", pairs = "full")
+fun_rda.vasc.0_epi <- dbrda (fun_dist_epi$TD_beta~ 1, data = env3[,-10]) # model containing only species matrix and intercept
+fun_rda.vasc.all_epi <- dbrda (fun_dist_epi$TD_beta ~ ., data = env3[,-10]) # model including all variables from matrix chem1 (the dot after tilda (~) means "include all from data")
+
+#check collinearity with VIF.cca (<10)
+vif.cca(fun_rda.vasc.all) #all variables below 10
+
+fun_sel.osR2_epi <- ordiR2step (fun_rda.vasc.0_epi, scope = formula (fun_rda.vasc.all_epi), direction = c("both", "backward", "forward"))
+vif.cca(fun_rda.vasc.all_epi)
+fun_sel.osR2_epi$anova
+
+
+```
+
+```{r variance partition}
+mod<-varpart(fun_dist_endo$TD_beta,env2[,3:9],env2[,10:30])
+mod2<-varpart(fun_dist_epi$TD_beta,env3[,3:9],env3[,10:30])
+#fun endo
+rda.all<-dbrda(fun_dist_endo$TD_beta~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env2)
+rda.sp<-dbrda(fun_dist_endo$TD_beta~binom,env2)# Radj = 0.0085
+rda.pos<-dbrda(fun_dist_endo$TD_beta~position,env2) #non significant anova (rda.pos) with p=0.987
+rda.env<-dbrda(fun_dist_endo$TD_beta~MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7,env2) # Radj = 0.015
+rda.leaf<-dbrda(fun_dist_endo$TD_beta~chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env2) # Radj= 0.010
+
+#fun epi
+rda.all2<-dbrda(fun_dist_epi$TD_beta~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env3)
+rda.sp2<-dbrda(fun_dist_epi$TD_beta~binom,env3)# Radj = 0.009
+rda.pos2<-dbrda(fun_dist_epi$TD_beta~position,env3) #non significant anova (rda.pos) with p=0.412
+rda.env2<-dbrda(fun_dist_epi$TD_beta~MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7,env3) # Radj = 0.014
+rda.leaf2<-dbrda(fun_dist_epi$TD_beta~chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+SD,env3) # Radj= 0.002, anova p=0.256
+
+
+```
+
+
+##BACTERIA
+
+###PCNM CALCULATION FOR BACTERIA
+Produce MEM to take into account of spatial variability for epi and endo
+```{r mem, echo=FALSE,eval=FALSE}
+#S position removed see above
+
+#ENDOPHYTES
+tmp_bac_leaf_endo<-bac_final_samples_endo$samples
+tmp_bac_leaf_endo2<-bac_final_samples_endo2$samples
+#compute mem
+mem_endo<-dbmem(tmp_bac_leaf_endo2[,9:10],MEM.autocor = "non-null")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem_endo, nrepet = 999) # 5 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp_leaf_endo[,9:10]) - 1), col="red")
+
+tmp_bac_leaf_endo<-data_frame(tmp_bac_leaf_endo,mem_endo[,c(1:5)])
+tmp_bac_leaf_endo2<-data_frame(tmp_bac_leaf_endo2,mem_endo[,c(1:7)])
+
+
+
+#EPIPHYTES
+tmp_bac_leaf_epi<-bac_final_samples_epi$samples
+tmp_bac_leaf_epi2<-bac_final_samples_epi2$samples
+
+#compute mem
+mem_epi<-dbmem(tmp_bac_leaf_epi2[,9:10],MEM.autocor = "all")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem_epi, nrepet = 999) # 6 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(tmp_leaf_epi[,9:10]) - 1), col="red")
+
+tmp_bac_leaf_epi<-data_frame(tmp_bac_leaf_epi,mem_epi[,c(1:7)])
+tmp_bac_leaf_epi2<-data_frame(tmp_bac_leaf_epi2,mem_epi[,c(1:7)])
+```
+
+###alpha and beta-diversity
+```{r bac_alpha_beta, echo=FALSE,eval=FALSE}
+#ENDO
+#rarefaction curves
+alpha_bac<-hill_rarefaction(bac_final_samples,nboot=20,nsteps=10)
+gghill_rarefaction(alpha_bac)
+
+#Hill numbers
+#alpha_fungi<-hill_taxa(fungi_final_samples$reads,q=1)
+
+#plots
+#boxplot(alpha_fungi~tmp_leaf2$position)
+#boxplot(alpha_fungi~tmp_leaf2$binom)
+#boxplot(alpha_fungi~tmp_leaf2$position_leave)
+
+# ENDOPHYTES
+summary_metabarlist(bac_final_samples_endo)
+#$dataset_dimension
+#        n_row n_col
+#reads     129  8309
+#motus    8309    13
+#pcrs      129    11
+#samples   129    31
+#
+#$dataset_statistics
+#        nb_reads nb_motus avg_reads sd_reads avg_motus sd_motus
+#pcrs      443006     8309  3434.155 2403.389  249.6202 167.4277
+#samples   443006     8309  3434.155 2403.389  249.6202 167.4277
+
+##endo alpha-div - Hill numbers
+alpha_bac_endo<-hill_taxa(bac_final_samples_endo$reads,q=1)
+tmp_bac_leaf_endo$Shannon<-alpha_bac_endo
+
+alpha_bac_endo<-hill_taxa(bac_final_samples_endo2$reads,q=1)
+tmp_bac_leaf_endo2$Shannon<-alpha_bac_endo
+
+##endo beta-div - (Hellinger, Horn)
+#t<-data.frame(t(bac_final_samples_endo$reads))
+#bac_dist_endo<-vegdist(decostand(t,method="hellinger"),"bray")
+
+#t<-data.frame(t(bac_final_samples_endo2$reads))
+#bac_dist_endo2<-vegdist(decostand(t,method="hellinger"),"bray")
+
+# EPIPHYTES
+summary_metabarlist(bac_final_samples_epi)
+#$dataset_dimension
+#        n_row n_col
+#reads     134  8502
+#motus    8502    13
+#pcrs      134    11
+#samples   134    31
+#
+#$dataset_statistics
+#        nb_reads nb_motus avg_reads sd_reads avg_motus sd_motus
+#pcrs      492093     8502  3672.336 2357.101  251.8358 167.9098
+#samples   492093     8502  3672.336 2357.101  251.8358 167.9098
+
+##epi alpha-div - Hill numbers
+alpha_bac_epi<-hill_taxa(bac_final_samples_epi$reads,q=1)
+tmp_bac_leaf_epi$Shannon<-alpha_bac_epi
+
+alpha_bac_epi<-hill_taxa(bac_final_samples_epi2$reads,q=1)
+tmp_bac_leaf_epi2$Shannon<-alpha_bac_epi
+
+##epi beta-div - (Hellinger, Horn)
+#t<-data.frame(t(bac_final_samples_epi$reads))
+#bac_dist_epi<-vegdist(decostand(t,method="hellinger"),"horn")
+
+#rarefaction curves bacteria
+a_b<-specaccum(bac_final_samples$reads,method="rarefaction")
+a_b.df<-data.frame(a_b$sites,a_b$richness)
+g_ab<-ggplot(a_b.df,aes(x=a_b.sites,y=a_b.richness))+
+  geom_line()+
+  labs(x="Sites",y="Number of reads", title="Bacteria")+
+  ylim(0,10000)+
+  xlim(0,100)
+```
+
+###RELATIVE CONTRIBUTION OF SPACE, POSITION HOST AND LEAF TRAITS
+```{r alpha_div}
+# ENDOPHYTES
+# first model with all mem and binom as random effects 
+#test normality shannon
+
+ggqqplot(tmp_bac_leaf_endo$Shannon)
+ggdensity(tmp_bac_leaf_endo$Shannon)
+shapiro.test(tmp_bac_leaf_endo2$Shannon) # non normal p-value<0.05
+#transform Shannon to meet normality
+bc<-boxcox(tmp_bac_leaf_endo2$Shannon~tmp_bac_leaf_endo2$position)
+(lambda <- bc$x[which.max(bc$y)])
+## 0.828
+new_model <- lm(((tmp_bac_leaf_endo2$Shannon^lambda-1)/lambda) ~ tmp_bac_leaf_endo2$position)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+tmp_bac_leaf_endo2$norm_Shannon<-(tmp_bac_leaf_endo2$Shannon^lambda-1)/lambda
+
+
+#bac_mod1<-aov(norm_Shannon~binom+position+MEM1+MEM2+MEM3+MEM4+MEM5,tmp_bac_leaf_endo)
+#summary(bac_mod1) 
+#anova(bac_mod1) #no significant MEM
+
+##bac_mod3<-lme(norm_Shannon~position, random=~1|binom, tmp_bac_leaf_endo)
+#anova (bac_mod3)
+#summary(bac_mod3)
+
+#  numDF denDF  F-value p-value
+#(Intercept)     1    76 46.93842  <.0001
+#position        3    76  6.75736   4e-04
+#
+#rsquare3<-r.squaredGLMM(bac_mod3) # 0.0961
+
+#stepAIC
+env4 <- tmp_bac_leaf_endo2[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+env4<-data.frame(tmp_bac_leaf_endo2[,c(3,4,32:38,40)],env4)
+
+#correlation between leaf traits
+corr_endo_bac<-cor(env4[,-c(1:8)],method="spearman")
+p.mat=cor.mtest(env4[,-c(1:8)],conf.level=0.95)
+corrplot(corr_endo_bac,type="upper",order="hclust",p.mat=p.mat$p,insig="blank")
+
+#check collinearity with VIF (<5)
+bac_lm<-lm(norm_Shannon~., env4)
+vif(bac_lm) # remove LDMC, LWC,CCM,C
+bac_lm<-lm(norm_Shannon~., env4[,-c(13,16,17,18)]) 
+bac_lm.step<-stepAIC(bac_lm,direction="both")
+vif(bac_lm.step) # <10
+summary(bac_lm.step)
+
+
+# EPIPHYTES
+# first model with all mem and binom as random effects 
+#test normality shannon
+
+ggqqplot(tmp_bac_leaf_epi$Shannon)
+ggdensity(tmp_bac_leaf_epi$Shannon)
+shapiro.test(tmp_bac_leaf_epi2$Shannon) #  normal p-value=0.0006 
+#transform Shannon to meet normality
+#bc<-boxcox(tmp_bac_leaf_epi$Shannon~tmp_bac_leaf_epi$position)
+#(lambda <- bc$x[which.max(bc$y)])
+## 0.828
+#new_model <- lm(((tmp_bac_leaf_epi$Shannon^lambda-1)/lambda) ~ tmp_bac_leaf_epi$position)
+#qqnorm(new_model$residuals)
+#qqline(new_model$residuals)
+#tmp_bac_leaf_epi$norm_Shannon<-(tmp_bac_leaf_epi$Shannon^lambda-1)/lambda
+
+#bac_mod2<-aov(Shannon~binom+position+MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+MEM7, tmp_bac_leaf_epi)
+#summary(bac_mod2) 
+#anova(bac_mod2) #one  significant MEM= MEM3
+
+#bac_mod4<-lme(Shannon~position*MEM3,random=~1|binom,tmp_bac_leaf_epi)
+#anova (bac_mod4)
+#summary(bac_mod4) #significant effect of position and geo but no interaction
+
+#stepAIC
+env5 <- tmp_bac_leaf_epi2[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            # mean(na.omit(tmp_leaf_epi$thickness)) = 178.6817
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+env5<-data.frame(tmp_bac_leaf_epi2[,c(3,4,32:39)],env5)
+
+
+#correlation between leaf traits
+corr_epi_bac<-cor(env5[,-c(1:10)],method="spearman")
+p.mat=cor.mtest(env5[,-c(1:10)],conf.level=0.95)
+corrplot(corr_epi_bac,type="upper",order="hclust",p.mat=p.mat$p,insig="blank")
+
+#check collinearity with VIF (<5)
+bac_lm_epi<-lm(Shannon~., env5)
+vif(bac_lm_epi) # remove LDMC, CCM,C, LWC
+bac_lm_epi<-lm(Shannon~., env5[,-c(13,16,17,18)])
+bac_lm.step_epi<-stepAIC(bac_lm_epi,direction="both")
+vif(bac_lm.step_epi) # <5
+summary(bac_lm.step_epi)
+
+```
+
+Endophytes : mainly host effects (leaf traits)
+Epiphytes : mainly host , position effects
+
+```{r beta_div}
+# ENDOPHYTES
+
+##dbRDA
+ado_bac_endo<-dbrda(vegdist(decostand(bac_final_samples_endo$reads,"hellinger"),"bray")~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+Stom.den,env4[,-8])
+
+ado_bac_endo2<-dbrda(vegdist(decostand(bac_final_samples_endo2$reads,"hellinger"),"bray")~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+Stom.den,env4[,-8])
+# test if significant
+anova(ado_bac_endo) #p=0.001 --> select variables with ordi2step
+
+#test with ordi2step
+# compute morista-horn dissimilarity matrix ith HillR packahe to stay in Hill number format , q==1 
+bac_dist_endo<-hill_taxa_parti_pairwise(bac_final_samples_endo$reads,q=1,output="matrix", pairs = "full")
+bac_endo_rda.vasc.0 <- dbrda (bac_dist_endo$TD_beta ~ 1, data = env4[,-10]) # model containing only species matrix and intercept
+bac_endo_rda.vasc.all <- dbrda (bac_dist_endo$TD_beta ~ ., data = env4[,-10]) # model including all variables from matrix chem1 (the dot after tilda (~) means "include all from data")
+#check collinearity with VIF.cca (<10)no variables above 10
+vif.cca (bac_endo_rda.vasc.all) 
+bac_endo_sel.osR2 <- ordiR2step (bac_endo_rda.vasc.0, scope = formula (bac_endo_rda.vasc.all), direction = c("both", "backward", "forward"))
+vif.cca (bac_endo_sel.osR2)
+bac_endo_sel.osR2$anova
+
+
+
+# EPIPHYTES
+##dbRDA
+ado_bac_epi<-dbrda(vegdist(decostand(bac_final_samples_epi$reads, "hellinger"),"bray")~binom+position++MEM1+MEM2+MEM3+MEM4+MEM5+MEM6+chloro+thickness+ldmc+leaf.area+lma+ccm+lwc+C+N+Ca+Ash+Cu+Fe+Mg+Mn+C.N+P+K+Na+Zn+Stom.den, env5[,-c(9,10)])
+
+#test if significan
+anova(ado_bac_epi) # 0.001
+
+#test with ordi2step
+# compute morista-horn dissimilarity matrix ith HillR packahe to stay in Hill number format , q==1 
+bac_dist_epi<-hill_taxa_parti_pairwise(bac_final_samples_epi$reads,q=1,output="matrix", pairs = "full")
+bac_epi_rda.vasc.0 <- dbrda(bac_dist_epi$TD_beta ~ 1, data = env5[,-10] )# model containing only species matrix and intercept
+bac_epi_rda.vasc.all <- dbrda(bac_dist_epi$TD_beta~ ., data = env5[,-10]) # model including all variables from matrix chem1 (the dot after tilda (~) means "include all from data")
+#check collinearity with VIF.cca (<10)no variables above 10
+vif.cca (bac_endo_rda.vasc.all) 
+
+
+bac_epi_sel.osR2 <- ordiR2step (bac_epi_rda.vasc.0, scope = formula (bac_epi_rda.vasc.all), direction = c("both", "backward", "forward"))
+vif.cca(bac_epi_sel.osR2) # vif values <10
+
+bac_epi_sel.osR2$anova
+#bac_epi_sel.osR2_adj <- bac_epi_sel.osR2
+#bac_epi_sel.osR2_adj$anova$Padj <- p.adjust (bac_epi_sel.osR2$anova$`Pr(>F)`, method = 'hochberg', n = ncol (env5))
+#bac_epi_sel.osR2_adj$anova
+```
+
+```{r variance partition}
+mod3<-varpart(bac_dist_endo2$TD_beta,env4[,3:7],env4[,8:28])
+mod4<-varpart(bac_dist_epi2$TD_beta,env5[,3:8],env5[,9:29])
+```
+
+
+## FIGURES PERMANOVA FUNGI AND BACTERIA
+```{r ado_figs}
+#NMDS for figures
+#BACTERIA
+bac_endo_nmds<-vegan::metaMDS(bac_dist_endo$TD_beta,k=2,try=25,plot=FALSE)
+
+bac_endo_nmds_df<-as.data.frame(bac_endo_nmds$points)
+bac_endo_nmds_df$Position<-bac_final_samples_endo$samples$position
+bac_endo_nmds_df$Host<-bac_final_samples_endo$samples$binom
+bac_endo_nmds_df$Position<-factor(bac_final_samples_endo$samples$position,levels=c("H","M","B","S"))
+
+
+g36<-ggplot(bac_endo_nmds_df,aes(x=MDS1,y=MDS2))+
+  geom_point(size=2,aes(colour=Host, shape=Position))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),legend.position =c(0.2,0.3),axis.text = element_blank(),legend.text = element_text(size=10),legend.title = element_text(size=10))+
+  annotate("text",x=-1.5,y=1,label="a",size=8)+
+  annotate("text",x=0.8,y=1,label="stress:0.179", size=4)
+
+bac_epi_nmds<-vegan::metaMDS(bac_dist_epi$TD_beta,k=2,try=25,plot=FALSE)
+
+bac_epi_nmds_df<-as.data.frame(bac_epi_nmds$points)
+bac_epi_nmds_df$Position<-bac_final_samples_epi$samples$position
+bac_epi_nmds_df$Host<-bac_final_samples_epi$samples$binom
+bac_epi_nmds_df$Position<-factor(bac_final_samples_epi$samples$position,levels=c("H","M","B","S"))
+
+g35<-ggplot(bac_epi_nmds_df,aes(x=MDS1,y=MDS2))+
+  geom_point(size=2,aes(colour=Host, shape=Position))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),legend.position="none",legend.title = element_blank(),legend.background = element_blank(),axis.text = element_blank())+
+  annotate("text",x=-1.5,y=1,label="b",size=8)+
+  annotate("text",x=0.8,y=1,label="stress:0.136", size=4)
+
+
+#FUNGI
+
+fun_endo_nmds<-vegan::metaMDS(fun_dist_endo$TD_beta,k=2,try=40,plot=FALSE)
+
+fun_endo_nmds_df<-as.data.frame(fun_endo_nmds$points)
+fun_endo_nmds_df$Position<-fungi_final_samples_endo$samples$position
+fun_endo_nmds_df$Host<-fungi_final_samples_endo$samples$binom
+fun_endo_nmds_df$Position<-factor(fungi_final_samples_endo$samples$position,levels=c("H","M","B","S"))
+
+g37<-ggplot(fun_endo_nmds_df,aes(x=MDS1,y=MDS2))+
+  geom_point(size=2,aes(color=Host))+
+  xlim(-0.05,0.05)+
+  ylim(-0.05,0.05)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),legend.position="none",legend.title = element_blank(),legend.background = element_blank(),axis.text = element_blank())+
+  annotate("text",x=-0.05,y=0.05,label="c",size=8)+
+  annotate("text",x=0.04,y=0.05,label="stress:0.111", size=4)
+
+
+fun_epi_nmds<-vegan::metaMDS(fun_dist_epi$TD_beta,k=2,try=25,plot=FALSE)
+
+fun_epi_nmds_df<-as.data.frame(fun_epi_nmds$points)
+fun_epi_nmds_df$Position<-fungi_final_samples_epi$samples$position
+fun_epi_nmds_df$Host<-fungi_final_samples_epi$samples$binom
+
+fun_epi_nmds_df$Position<-factor(fun_epi_nmds_df$Position,levels=c("H","M","B","S"))
+
+g39<-ggplot(fun_epi_nmds_df,aes(x=MDS1,y=MDS2 ))+
+  geom_point(size=2,aes(color=Host))+
+  xlim(-0.03,0.03)+
+  ylim(-0.05,0.05)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),legend.position="none",legend.title = element_blank(),legend.background = element_blank(),legend.key.size = unit(.4,"cm"),legend.text = element_text(size=8),axis.text = element_blank())+
+  annotate("text",x=-0.03,y=0.05,label="d",size=8)+
+  annotate("text",x=0.02,y=0.05,label="stress:0.110", size=4)
+
+
+plot_grid(g36,g35,g37,g39,ncol=2,nrow=2)
+```
+
+```{r var.sel.fig}
+
+tab.var.sel<-read.delim("var.sel.rda.fsmb.txt",header=T)
+tab.var.sel$factor<-factor(tab.var.sel$factor,levels=c("Ash","Mn","Mg","Na","K","Cu","Ca","N","C","C.N","Chlorophyll","CCM","SD","LMA","LDMC","LT","LWC","PCNM7","PCNM6","PCNM5","PCNM4","PCNM3","PCNM2","PCNM1","Position","Host species", "All variables"))
+
+gvar.sel<-ggdotchart(tab.var.sel,x="factor",y="Values",color="taxa",palette=c("#3366CC","#996666"),rotate=TRUE,sorting="none",add="segments",dot.size=3)+
+  facet_grid(vars(leaf),vars(taxa),scales="free_x",)+
+  theme_bw()+
+  theme(panel.grid =element_blank(),legend.position="none",axis.title = element_blank(),strip.text=element_text(size=12), axis.text.y = element_text(size=10))
+
+
+```
+
+
+# H3 - Foliar traits contribute more to the assembly of endophytic than
+epiphytic communities (endophytes are intimately linked to their hosts)
+
+##FUNGI
+
+### NDV 
+```{r ndv}
+#Tucker et al 2016 sources codes R
+# All Fungi
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(fungi_final_samples$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 999
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_fun <- beta_div_abund_stoch - mean(bucket_bray_res)
+#bray_abund_null_dev_fun
+save(bray_abund_null_dev_fun,file="bray_abund_null_dev_fun.RData")
+
+#Endophytes
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(fungi_final_samples_endo$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 5
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_fun_endo <- beta_div_abund_stoch - mean(bucket_bray_res)
+bray_abund_null_dev_fun_endo
+save(bray_abund_null_dev_fun_endo,file="bray_abund_null_dev_fun_endo.RData")
+
+
+#Epiphytes
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(fungi_final_samples_epi$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 5
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_fun_epi <- beta_div_abund_stoch - mean(bucket_bray_res)
+bray_abund_null_dev_fun_epi
+save(bray_abund_null_dev_fun_epi,file="bray_abund_null_dev_fun_epi.RData")
+
+#compare epi vs endo
+##NDV
+boxplot(bray_abund_null_dev_fun_endo,bray_abund_null_dev_fun_epi,outline=FALSE)
+t.test(bray_abund_null_dev_fun_endo,bray_abund_null_dev_fun_epi, alternative = "two.sided", var.equal = FALSE)
+
+df_bray_fun_endo<-data.frame(bray_abund_null_dev_fun_endo)
+colnames(df_bray_fun_endo)<-c("NDV")
+df_bray_fun_epi<-data.frame(bray_abund_null_dev_fun_epi)
+colnames(df_bray_fun_epi)<-c("NDV")
+
+
+g31<-ggplot()+
+  geom_violin(data=df_bray_fun_endo,aes(x=factor(0),y=NDV),colour="black", fill="chartreuse3",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  geom_violin(data=df_bray_fun_epi,aes(x=factor(1),y=NDV),colour="black",fill="chocolate1",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text = element_text(size=14))+
+  annotate("text",x=2,y=0.355,label="T.test, p<0.001")
+
+
+```
+
+### OMI
+```{r omi}
+##OMI
+##OMI
+#all fungi
+t<-fungi_final_samples$samples
+tbis <- t[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+tbis<-data.frame(tbis,t[,c(3,4)])
+tbis$position<-as.factor(tbis$position)
+tbis$binom<-as.factor(tbis$binom)
+
+OTU_all=data.frame(fungi_final_samples$reads)
+dudi1_all <- dudi.mix(tbis, scannf = FALSE, nf = 3)
+nic1_fun_all <- niche(dudi1_all, OTU_all, scann = FALSE)
+niov_fun_all=niche.param(nic1_fun_all)
+niche_fun_all=rtest(nic1_fun_all,19)
+df_fun<-data.frame(niov_fun_all)
+df_fun$id<-rownames(df_fun)
+
+#add abundance of OTU
+csum_fungi<-data.frame(colSums(fungi_final_samples$reads))
+csum_fungi$id<-rownames(csum_fungi)
+#replace _ by . in seq names
+write.table(csum_fungi,"csum_fungi.txt",row.names = FALSE)
+csum_fungi2<-read.delim("csum_fungi.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_fun<-left_join(df_fun,csum_fungi2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_fun$colSums.fungi_final_samples.reads.)
+#keep abundance > 3rd Quarter
+# in italic = corresponding percentages of variability
+df_fun2<-droplevels.data.frame(df_fun[which(df_fun$colSums.fungi_final_samples.reads.>46),])
+
+#Endophytes
+
+##remplacer les NA par la moyenne chaque trait 
+env <- tmp_leaf_endo[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+env<-data.frame(env,tmp_leaf_endo[,c(3,4)])
+env$position<-as.factor(env$position)
+env$binom<-as.factor(env$binom)
+
+OTU=data.frame(fungi_final_samples_endo$reads)
+dudi1 <- dudi.mix(env, scan = FALSE, nf = 3)
+nic1 <- niche(dudi1, OTU, scann = FALSE)
+niov=niche.param(nic1)
+niche=rtest(nic1,19)
+
+df_fun_endo<-data.frame(niov)
+df_fun_endo$id<-rownames(df_fun_endo)
+
+#add abundance of OTU
+csum_fungi_endo<-data.frame(colSums(fungi_final_samples_endo$reads))
+csum_fungi_endo$id<-rownames(csum_fungi_endo)
+#replace _ by . in seq names
+write.table(csum_fungi_endo,"csum_fungi_endo.txt",row.names = FALSE)
+csum_fungi_endo2<-read.delim("csum_fungi_endo.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_fun_endo<-left_join(df_fun_endo,csum_fungi_endo2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_fun_endo$colSums.fungi_final_samples_endo.reads.)
+#keep abundance > 24
+# in italic = corresponding percentages of variability
+df_fun_endo2<-droplevels.data.frame(df_fun_endo[which(df_fun_endo$colSums.fungi_final_samples_endo.reads.>24),])
+
+
+
+#Epiphytes
+##remplacer les NA par la moyenne chaque trait 
+env <- tmp_leaf_epi[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            # mean(na.omit(tmp_leaf_epi$thickness)) = 178.6817
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+env<-data.frame(env,tmp_leaf_epi[,c(3,4)])
+env$position<-as.factor(env$position)
+env$binom<-as.factor(env$binom)
+
+OTU=data.frame(fungi_final_samples_epi$reads)
+dudi1_epi <- dudi.mix(env, scan = FALSE, nf = 3)
+nic1_epi <- niche(dudi1_epi, OTU, scann = FALSE)
+niov_fun_epi=niche.param(nic1_epi)
+niche_fun_epi=rtest(nic1_epi,19)
+
+df_fun_epi<-data.frame(niov_fun_epi)
+df_fun_epi$id<-rownames(df_fun_epi)
+
+#add abundance of OTU
+csum_fungi_epi<-data.frame(colSums(fungi_final_samples_epi$reads))
+csum_fungi_epi$id<-rownames(csum_fungi_epi)
+#replace _ by . in seq names
+write.table(csum_fungi_epi,"csum_fungi_epi.txt",row.names = FALSE)
+csum_fungi_epi2<-read.delim("csum_fungi_epi.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_fun_epi<-left_join(df_fun_epi,csum_fungi_epi2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_fun_epi$colSums.fungi_final_samples_epi.reads.)
+#keep abundance > 10
+# in italic = corresponding percentages of variability
+df_fun_epi2<-droplevels.data.frame(df_fun_epi[which(df_fun_epi$colSums.fungi_final_samples_epi.reads.>25),])
+
+t.test(df_fun_endo2$OMI,df_fun_epi2$OMI, alternative = "two.sided", var.equal = FALSE)
+wilcox.test(df_fun_endo2$OMI,df_fun_epi2$OMI, alternative = "two.sided", var.equal = FALSE)
+
+```
+
+##BACTERIA
+### NDV
+```{r ndv}
+#Tucker et al 2016 sources codes R
+# All Bacteria
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(bac_final_samples$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 30
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_bac <- beta_div_abund_stoch - mean(bucket_bray_res)
+bray_abund_null_dev_bac
+
+
+#Endophytes
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(bac_final_samples_endo$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 1
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_bac_endo <- beta_div_abund_stoch - mean(bucket_bray_res)
+bray_abund_null_dev_bac_endo
+
+
+#Epiphytes
+### Prepare and calculate abundance beta-null deviation metric
+## Adjusted from Stegen et al 2012 GEB
+comm.t=t(bac_final_samples_epi$reads)
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 1
+
+### parallelize cores
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) 
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) #mean.alpha
+gamma <- ncol(bbs.sp.site) #gamma
+obs_beta <- 1-mean.alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma
+
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species])
+    null.dist[,species] = 0
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1)
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray"))
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE)
+} ## end randomize loop
+
+## Calculate beta-diversity for obs metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA 
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_bac_epi <- beta_div_abund_stoch - mean(bucket_bray_res)
+bray_abund_null_dev_bac_epi
+
+#compare epi vs endo
+##NDV
+t.test(bray_abund_null_dev_bac_endo,bray_abund_null_dev_bac_epi, alternative = "two.sided", var.equal = FALSE)
+
+
+```
+### OMI
+```{r omi}
+#all bacteria
+t3<-bac_final_samples$samples
+t3bis <- t3[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+t3bis<-data.frame(t3bis,t3[,c(3,4)])
+t3bis$position<-as.factor(t3bis$position)
+t3bis$binom<-as.factor(t3bis$binom)
+
+OTU_all_bac=data.frame(bac_final_samples$reads)
+dudi1_all_bac <- dudi.mix(t3bis,  scan = FALSE, nf = 3)
+nic1_bac_all <- niche(dudi1_all_bac, OTU_all_bac, scann = FALSE)
+niov_bac_all=niche.param(nic1_bac_all)
+niche_bac_all=rtest(nic1_bac_all,19)
+df_bac<-data.frame(niov_bac_all)
+df_bac$id<-rownames(df_bac)
+
+#add abundance of OTU
+csum_bac<-data.frame(colSums(bac_final_samples$reads))
+csum_bac$id<-rownames(csum_bac)
+#replace _ by . in seq names
+write.table(csum_bac,"csum_bac.txt",row.names = FALSE)
+csum_bac2<-read.delim("csum_bac.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_bac<-left_join(df_bac,csum_bac2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_bac$colSums.bac_final_samples.reads.)
+#keep abundance > 49
+# in italic = corresponding percentages of variability
+df_bac2<-droplevels.data.frame(df_bac[which(df_bac$colSums.bac_final_samples.reads.>49),])
+
+#endo
+##remplacer les NA par la moyenne chaque trait 
+env <- tmp_bac_leaf_endo[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+env<-data.frame(env,tmp_bac_leaf_endo[,c(3,4)])
+env$position<-as.factor(env$position)
+env$binom<-as.factor(env$binom)
+
+OTU=data.frame(bac_final_samples_endo$reads)
+dudi1 <- dudi.mix(env, scan = FALSE, nf = 3)
+nic1_bac_endo <- niche(dudi1, OTU, scann = FALSE)
+niov_bac_endo=niche.param(nic1_bac_endo)
+niche_bac_endo=rtest(nic1,19)
+
+df_niche_bac_endo<-as.data.frame(niov_bac_endo) #dataframe for figs
+df_niche_bac_endo$id<-rownames(df_niche_bac_endo)
+
+#add abundance of OTU
+csum_bac_endo<-data.frame(colSums(bac_final_samples_endo$reads))
+csum_bac_endo$id<-rownames(csum_bac_endo)
+#replace _ by . in seq names
+write.table(csum_bac_endo,"csum_bac_endo.txt",row.names = FALSE)
+csum_bac_endo2<-read.delim("csum_bac_endo.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_niche_bac_endo<-left_join(df_niche_bac_endo,csum_bac_endo2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_niche_bac_endo$colSums.bac_final_samples_endo.reads.)
+#keep abundance > 18
+# in italic = corresponding percentages of variability
+df_niche_bac_endo2<-droplevels.data.frame(df_niche_bac_endo[which(df_niche_bac_endo$colSums.bac_final_samples_endo.reads.>18),])
+
+
+#epiphytes
+
+##remplacer les NA par la moyenne chaque trait 
+env <- tmp_bac_leaf_epi[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            # mean(na.omit(tmp_leaf_epi$thickness)) = 178.6817
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            Stom.den=replace_na(Stom.den, mean(Stom.den, na.rm=TRUE)))
+env<-data.frame(env,tmp_bac_leaf_epi[,c(3,4)])
+env$position<-as.factor(env$position)
+env$binom<-as.factor(env$binom)
+
+OTU=data.frame(bac_final_samples_epi$reads)
+dudi1_bac_epi <- dudi.mix(env,  scan = FALSE, nf = 3)
+nic1_bac_epi <- niche(dudi1_bac_epi, OTU, scann = FALSE)
+niov_bac_epi=niche.param(nic1_bac_epi)
+niche_bac_epi=rtest(nic1_bac_epi,19)
+
+df_niche_bac_epi<-as.data.frame(niov_bac_epi)
+df_niche_bac_epi$id<-rownames(df_niche_bac_epi)
+
+#add abundance of OTU
+csum_bac_epi<-data.frame(colSums(bac_final_samples_epi$reads))
+csum_bac_epi$id<-rownames(csum_bac_epi)
+#replace _ by . in seq names
+write.table(csum_bac_epi,"csum_bac_epi.txt",row.names = FALSE)
+csum_bac_epi2<-read.delim("csum_bac_epi.txt",header=T)
+#join the 2 df to trim by abundance of OTU
+df_niche_bac_epi<-left_join(df_niche_bac_epi,csum_bac_epi2, by=c("id"="id"))
+#criteria of trimming based on median value
+summary(df_niche_bac_epi$colSums.bac_final_samples_epi.reads.)
+#keep abundance > 33
+# in italic = corresponding percentages of variability
+df_niche_bac_epi2<-droplevels.data.frame(df_niche_bac_epi[which(df_niche_bac_epi$colSums.bac_final_samples_epi.reads.>33),])
+
+##OMI
+
+boxplot(df_niche_bac_endo2$OMI,df_niche_bac_epi2$OMI ,outline=FALSE) 
+wilcox.test(df_niche_bac_endo2$OMI,df_niche_bac_epi2$OMI, alternative = "two.sided", var.equal = FALSE)
+
+boxplot(df_fun_endo2$OMI,df_fun_epi2$OMI,outline=FALSE)
+wilcox.test(df_fun_endo2$OMI,df_fun_epi2$OMI, alternative = "two.sided", var.equal = FALSE)
+
+
+```
+
+## NDV FIGURES
+```{r ndv_fig}
+#all
+#bacteria
+load("bray_abund_null_dev_bac.RData") #recuperer depuis le serveur biogeco
+df_bray_bac<-data.frame(bray_abund_null_dev_bac)
+colnames(df_bray_bac)<-c("NDV")
+#fungi
+load("bray_abund_null_dev_fun.RData")
+df_bray_fun<-data.frame(bray_abund_null_dev_fun)
+colnames(df_bray_fun)<-c("NDV")
+
+wilcox.test(df_bray_fun$NDV,df_bray_bac$NDV,var.equal=F)
+
+g40<-ggplot()+
+  geom_boxplot(data=df_bray_fun,aes(x=factor(0),y=NDV),colour="black", fill="#996666", outlier.colour = "white")+
+  geom_boxplot(data=df_bray_bac,aes(x=factor(1),y=NDV),colour="black",fill="#3366CC", outlier.colour = "white")+
+  scale_x_discrete(breaks=c(0,1),labels=c("Fungi","Bacteria"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12), axis.text.y = element_text(size=10),axis.title.y = element_text(size=12))+
+  annotate("text",x=1.5,y=0.40,label="Wilcoxon test, p<0.001", size=4)+
+  ylim(0.20,0.40)+
+  annotate("text",x=0.6,y=0.40,label="a",size=8)+
+  ylab("beta Null Deviation Values")
+
+#fungi
+df_bray_fun_endo<-data.frame(bray_abund_null_dev_fun_endo)
+colnames(df_bray_fun_endo)<-c("NDV")
+df_bray_fun_epi<-data.frame(bray_abund_null_dev_fun_epi)
+colnames(df_bray_fun_epi)<-c("NDV")
+
+
+g31<-ggplot()+
+  geom_violin(data=df_bray_fun_endo,aes(x=factor(0),y=NDV),colour="black", fill="chartreuse3",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  geom_violin(data=df_bray_fun_epi,aes(x=factor(1),y=NDV),colour="black",fill="chocolate1",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=14), axis.text.y = element_text(size=10),axis.title.y = element_text(size=14))+
+  annotate("text",x=2,y=0.35,label="T.test, p<0.001")+
+  annotate("text",x=0.6,y=0.35,label="b",size=10)
+
+wilcox.test(df_bray_fun_endo$NDV,df_bray_fun_epi$NDV,paired=F)
+
+g31<-ggplot()+
+  geom_boxplot(data=df_bray_fun_endo,aes(x=factor(0),y=NDV),colour="black", fill="#996666", outlier.colour = "white")+
+  geom_boxplot(data=df_bray_fun_epi,aes(x=factor(1),y=NDV),colour="black",fill="#FFCCCC", outlier.colour = "white")+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12))+
+  ylab(" ")+
+  ylim(0.30,0.35)+
+  annotate("text",x=1.9,y=0.35,label="Wilcoxon test, p<001", size=4)+
+  annotate("text",x=0.6,y=0.35,label="b",size=8)
+
+#bacteria
+load("bray_abund_null_dev_bac_endo.RData")
+df_bray_bac_endo<-data.frame(bray_abund_null_dev_bac_endo)
+colnames(df_bray_bac_endo)<-c("NDV")
+
+load("bray_abund_null_dev_bac_epi.RData")
+df_bray_bac_epi<-data.frame(bray_abund_null_dev_bac_epi)
+colnames(df_bray_bac_epi)<-c("NDV")
+
+wilcox.test(df_bray_bac_endo$NDV,df_bray_bac_epi$NDV,paired = F)
+
+g32<-ggplot()+
+  geom_violin(data=df_bray_bac_endo,aes(x=factor(0),y=NDV),colour="black", fill="chartreuse3",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  geom_violin(data=df_bray_bac_epi,aes(x=factor(1),y=NDV),colour="black",fill="chocolate1",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=14))+
+  scale_y_continuous(breaks=c(0.20,0.25,0.30,0.35,0.40),labels=c(" "," "," "," ",","))
+  ylab(" ")+
+  ylim(0.20,0.40)+
+  annotate("text",x=2,y=0.39,label="T.test, p<0.001")+
+  ylim(0.20,0.40)
+
+g32<-ggplot()+
+  geom_boxplot(data=df_bray_bac_endo,aes(x=factor(0),y=NDV),colour="black",fill="#3366CC",outlier.colour = "white" )+
+  geom_boxplot(data=df_bray_bac_epi,aes(x=factor(1),y=NDV),colour="black",fill="#99CCFF",outlier.colour = "white")+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  scale_y_continuous(labels = label_number(accuracy = 0.01))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12))+
+  ylab(" ")+
+  annotate("text",x=1.9,y=0.30,label="Wilcoxon test, p<001", size=4)+
+  annotate("text",x=0.6,y=0.30,label="c",size=8)
+plot_grid(g40,g31,g32,ncol=3)
+```
+## OMI FIGURES
+```{r omi_fig}
+#all fungi vs all bacteria
+wilcox.test(df_bac2$OMI,df_fun2$OMI,alternative="two.sided")
+g38<-ggplot()+
+  geom_boxplot(data=df_fun2,aes(x=factor(0),y=OMI),outlier.colour = "white",colour="black", fill="#996666")+
+  geom_boxplot(data=df_bac2,aes(x=factor(1),y=OMI),outlier.colour = "white",colour="black", fill="#3366CC")+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12), axis.text.y = element_text(size=10),axis.title.y = element_text(size=12))+
+  ylim(0,40)+
+  scale_x_discrete(breaks=c(0,1),labels=c("Fungi","Bacteria"))+
+  annotate("text",x=1.5,y=40,label="Wilcoxon test, p<0.001")+
+  annotate("text",x=0.6,y=40,label="a",size=8)+
+  ylab("Outlying Meand Index")
+ 
+
+#fungi
+wilcox.test(df_fun_endo2$OMI,df_fun_epi2$OMI, alternative = "two.sided")
+#bacteria
+wilcox.test(df_niche_bac_endo$OMI ,df_niche_bac_epi$OMI, alternative = "two.sided")
+
+#compare epi vs endo
+g33<-ggplot()+
+  geom_boxplot(data=df_fun_endo2,aes(x=factor(0),y=OMI),colour="black", fill="#996666",outlier.colour = "white")+
+  geom_boxplot(data=df_fun_epi2,aes(x=factor(1),y=OMI),colour="black",fill="#FFCCCC",outlier.colour = "white")+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  scale_y_continuous(breaks=c(0,10,20,30),labels=c(" "," "," ",""))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12))+
+  ylab(" ")+
+  annotate("text",x=1.5,y=40,label="Wilcoxon test, p=0.933")+
+  ylim(0,40)+
+  annotate("text",x=0.6,y=40,label="b",size=8)
+
+g34<-ggplot()+
+  geom_boxplot(data=df_niche_bac_endo,aes(x=factor(0),y=OMI),colour="black", fill="#3366CC",outlier.colour = "white")+
+  geom_boxplot(data=df_niche_bac_epi,aes(x=factor(1),y=OMI),colour="black",fill="#99CCFF",outlier.colour = "white")+
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text.x = element_text(size=12))+
+  scale_y_continuous(breaks=c(0,10,20,30),labels=c(" "," "," ",""))+
+  ylab(" ")+
+  annotate("text",x=1.5,y=40,label="Wilcoxon test, p<0.001")+
+  ylim(0,40)+
+  annotate("text",x=0.6,y=40,label="c",size=8)
+
+plot_grid(g38,g33,g34,ncol=3)
+
+plot_grid(g31,g32,g33,g34,nrow=2,ncol=2)
+```
+```{r omi fig func}
+#fungi
+g35<-ggplot(test,aes(x=Trophic.Mode,y=OMI,fill=Trophic.Mode))+
+  geom_violin(colour="black",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),axis.text.x = element_text(size=14),legend.position = "none")+
+  ylim(0,120)+
+  annotate("text",x=1,y=110,label="a")+
+  annotate("text",x=2,y=110,label="b")+
+  annotate("text",x=3,y=110,label="ab")
+
+
+g36<-ggplot(test2,aes(x=Trophic.Mode,y=OMI,fill=Trophic.Mode))+
+  geom_violin(colour="black",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(),axis.text.x = element_text(size=14),legend.position = "none")+
+  ylim(0,120)+
+  annotate("text",x=1.1,y=110,label="a")+
+  annotate("text",x=2.1,y=110,label="a")+
+  annotate("text",x=3,y=110,label="b")
+```
+```{bash}
+#connection sur serveur BIGECO
+ssh hschimann@147.100.113.111
+# pw = ldap
+
+#download and upload data
+#local to serveur
+sftp hschimann@147.100.113.111
+#pw ldap
+put file 
+
+#serveur to local
+get file
+
+#connect to globalprotect
+globalprotect
+connect #pw
+disconnect #pw
+
+
+# lancer un script R en fond de tache
+Rscript --save ndv_bacteria.R.save >>bray_abund_null_dev_bac.RData 2>>log_error.out &
+Rscript --save ndv_bacteria_endo.R >>bray_abund_null_dev_bac_endo.RData 2>>log_error.out &
+Rscript --save ndv_bacteria_epi.R >>bray_abund_null_dev_bac_epi.RData 2>>log_error.out &
+Rscript --save --file ndv_fungi.R >>bray_abund_null_dev_fun.RData 2>>log_error2.out &
+
+# modify the script accordingly : nb of cores and loop to add for parallelisation, add save(file, "file.RData") at the end for the output
+Rscript --save ndv_bacteria_endo.R  &
+Rscript ndv_bacteria_epi.R > bac_out_epi.txt &
+Rscript ndv_fungi.R > fungi_out.txt &
+Rscript ndv_fungi_endo.R > fungi_out_endo.txt &
+Rscript ndv_fu&àngi_epi.R > fungi_out_epi.txt &
+```
+
+QIIME2 for submission of demultiplexed fastq files to SRA 
+```{bash}
+#open terminal-rosetta
+conda activate qiime2-2022.8
+
+#barcode files for demux_paired
+# concatenate tag+primer in fw and rev and save in tab_separated 
+#FUNGI FW GTGAATCATCGAATCTTTGAA
+#BACTERIA FW AACMGGATTAGATACCCKG
+
+#tabulate metadata in .qza
+qiime metadata tabulate \
+  --m-input-file VERTIGE_NGS_filter_qiime.txt \
+  --o-visualization VERTIGE_NGS_filter_qiime.txt.qzv
+
+# inspect metadata
+qiime tools inspect-metadata metadata.tsv
+
+#import file in EMP protocol multiplexed paired-end fastq
+qiime tools import \
+  --type MultiplexedPairedEndBarcodeInSequence \
+  --input-path files \
+  --output-path multiplexed-seqs.qza
+
+#demultiplexing
+qiime cutadapt demux-paired --i-seqs multiplexed-seqs.qza --m-forward-barcodes-file VERTIGE_NGS_filter_qiime.txt.qzv --m-forward-barcodes-column barcode_sequence --p-error-rate 0 --o-per-sample-sequences demultiplexed.qza --o-untrimmed-sequences untrimmed-sequences.qza
+
+#export files for genbank submission
+qiime tools export --input-path demultiplexed.qza --output-path vertige_demux_files
+
+
+```
+
+run the job on migale
+```{bash}
+#connect
+ssh -X hschimann@front.migale.inrae.fr
+#password: LUcinda22101973!!
+
+# copy files from local to front/work
+# in local to server (-r for a directory)
+
+scp -r /Users/heidy.schimann/Documents/VERTIGE/analyses/fungi-bacteria-functional/R_migale hschimann@front.migale.inrae.fr:/home/hschimann/work/vertige
+
+# lancer Rscript via un qsub
+# se mettre dans le bon repértoire 'R_migale'
+qsub -cwd -N fungi_all -q short.q -b y "Rscript ndv.fungi.R"
+qsub -cwd -N fungi_endo -q short.q -b y "Rscript ndv.fungi_endo.R"
+qsub -cwd -N fungi_epi -q short.q -b y "Rscript ndv.fungi_epi.R"
+qsub -cwd -N bacteria_all -q short.q -b y "Rscript ndv.bacteria.R"
+qsub -cwd -N bacteria_endo -q short.q -b y "Rscript ndv.bacteria_endo.R"
+qsub -cwd -N bacteria_epi -q short.q -b y "Rscript ndv.bacteria_epi.R"
+
+
+```
+```{bash}
+# connexion genotoul
+ssh hschimann@genologin.toulouse.inrae.fr
+# PW ldap
+
+# copy files from local to front/work
+# in local to server (-r for a directory)
+
+scp -r /Users/heidy.schimann/Documents/VERTIGE/analyses/fungi-bacteria-functional/R_migale hschimann@genologin.toulouse.inrae.fr:/home/hschimann/work/
+
+#from server to local
+scp  hschimann@genologin.toulouse.inrae.fr:~/work/R_migale/bray_abund_null_dev_fun.RData /Users/heidy.schimann/Documents/VERTIGE/analyses/fungi-bacteria-functional/R_migale 
+
+#install packages in R dir
+srun --pty bash
+module load system/R-3.6.2
+R
+install.packages("reldist", lib="~/work/R")
+install.packages("bipartite", lib="~/work/R")
+
+library(reldist,lib.loc="~/work/R")
+
+#script SBATCH = myscript.sh
+#write the script.sh
+touch myscript.sh #create file
+chmod +x myscript.sh # executable permission
+vim myscript.sh #open it with nano and write
+#i pour modifer
+#:q! pour quitter
+#:x pour sauver si modifications
+
+# launch the job
+sbatch myscript.sh
+qstat -u schimann # follow the job
+```
+```{bash myscript.sh}
+#! /bin/bash
+#SBATCH -J vertige_simul
+#SBATCH -N 2
+#SBATCH -p workq
+#SBATCH  --mem=16G
+#SBATCH —mail-type=END, FAIL
+
+module  purge
+
+#load the R module
+module load system/R-3.6.2
+
+#the command line
+Rscript ndv_bacteria.R  
+```
+
+TEST TITAN2
+```{r}
+library(TITAN2)
+
+df.metabarlist<-subset_metabarlist(fungi_final_samples_endo,table="motus",indices=(fungi_final_samples_endo$motus$COUNT>100))
+df<-data.frame(df.metabarlist$reads)
+df2<-df[,which(colSums(df)>3)]
+
+df.env<-tmp_leaf_endo[,c(11:31)] %>%
+     mutate(chloro=replace_na(chloro, mean(chloro, na.rm=TRUE)),
+            thickness=replace_na(thickness,179), #moyenne calculee a part et garder sans decimale
+            ldmc=replace_na(ldmc, mean(ldmc, na.rm=TRUE)),
+            leaf.area=replace_na(leaf.area, mean(leaf.area, na.rm=TRUE)),
+            lma=replace_na(lma, mean(lma, na.rm=TRUE)),
+            ccm=replace_na(ccm, mean(ccm, na.rm=TRUE)),
+            lwc=replace_na(lwc, mean(lwc, na.rm=TRUE)),
+            C=replace_na(C, mean(C, na.rm=TRUE)),
+            N=replace_na(N, mean(N, na.rm=TRUE)),
+            Ca=replace_na(Ca, mean(Cu, na.rm=TRUE)),
+            Ash=replace_na(Ash, mean(Ash, na.rm=TRUE)),
+            Cu=replace_na(Cu, mean(Ca, na.rm=TRUE)),
+            Fe=replace_na(Fe, mean(Fe, na.rm=TRUE)),
+            Mg=replace_na(Mg, mean(Mg, na.rm=TRUE)),
+            Mn=replace_na(Mn, mean(Mn, na.rm=TRUE)),
+            C.N=replace_na(C.N, mean(C.N, na.rm=TRUE)),
+            P=replace_na(P, mean(P, na.rm=TRUE)),
+            K=replace_na(K, mean(K, na.rm=TRUE)),
+            Na=replace_na(Na, mean(Na, na.rm=TRUE)),
+            Zn=replace_na(Zn, mean(Zn, na.rm=TRUE)),
+            SD=replace_na(SD, mean(SD, na.rm=TRUE)))
+df.env<-data.frame(df.env)
+rownames(df.env)<-rownames(df)
+df.env2<-df.env[which(rownames(df.env) %in% rownames(df2)),]
+
+df.titan<-titan(df.env2$lma,df2)
+
+
+
+```
+files for zenodo repository
+```{r}
+tmp_bac<-raw_b[,c(1,4,7,9,1430,1432,1442,1448)]
+write.table(tmp_bac, file="bacfasta.txt",row.names = FALSE)
+```
+
