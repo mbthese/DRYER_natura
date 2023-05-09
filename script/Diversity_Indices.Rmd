@@ -101,9 +101,9 @@ library(BiocManager)
 library(microbiome)  
 
 # Enable the r-universe repo
-options(repos = c(
-    fawda123 = 'https://fawda123.r-universe.dev',
-    CRAN = 'https://cloud.r-project.org'))
+# options(repos = c(
+#     fawda123 = 'https://fawda123.r-universe.dev',
+#     CRAN = 'https://cloud.r-project.org'))
 
 # Install ggord
 #install.packages('ggord')
@@ -132,18 +132,59 @@ traits$code <- as.character(traits$code)
 
 ```
 
+## pncm
+
+Method that aims at identifying spatial patterns. 
+
++ It builds a matrix a euclidena distances among sampling points, using a pairwise geographic distance matrix between sampling sites. You need the Xutm and Yutm columns.
++ Truncate this distance matrix (with a threshold) so as to retain only the distance values corresponding to the nearest neighbors.
++ Replace the deleted values by an arbitrary large distance value: now the distance matrix represents the distances among the samples that are close and considers the rest of points as 'far away'
++ Compute the PCoA (no correction for negative eigenvalues)
++ Retain the positive eigenvalues. These are the spatial explanatory variables to use in multiple regression or canonical ordination. 
+
+Overall: The method basically consists of diagonalizing a spatial weighting matrix, then extracting the eigenvectors that maximize the Moran's index of autocorrelation. 
+
+
+```{r}
+
+library(devtools)
+#install_github("sdray/adespatial")
+library("adespatial")
+
+#compute mem
+mem<-dbmem(traits[,7:8],MEM.autocor = "non-null")
+# Compute and test associated Moran's I values
+# Eigenvalues are proportional to Moran's 
+test <- moran.randtest(mem, nrepet = 999) # 5 first are significant (positive eigenvalues)
+plot(test$obs, xlab="MEM rank", ylab="Moran's I")
+abline(h=-1/(nrow(traits[,7:8]) - 1), col="red")
+
+traits<-tibble(traits,mem[,c(1:4)])
+
+
+```
+
+
+
 
 ## impute trait data
 
 Exploring where Nas are located in the dataset and imputing traits except SD.
 
 ```{r exploring NA}
-
+set.seed(123)
 #check the nas
 pMiss <- function(x){sum(is.na(x))/length(x)*100}
 apply(traits,2,pMiss)
 
-#we see that SD is almost 30% missing values, the rest is below a threshold of 5%
+#we consider a threshold of 7%:
+
+#TLP 22 %
+#RootDiameter 1.4%
+#gmin 6.9%
+#SD 4.1 %
+#MajVLA 75%
+
 library(VIM)
 aggr_plot <- aggr(traits, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(traits), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
 # 
@@ -156,7 +197,7 @@ aggr_plot <- aggr(traits, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, 
 #   StomatalDensity 0.04166667
 #      RootDiameter 0.01388889
 
-#imputing th emissing data for all traits except MajVLA, Nb_leaflets, TLP
+#imputing th emissing data for all traits except MajVLA, Nb_leaflets, TLP, only for gmin ;StomatalDensity ;RootDiamete
 library(mice)
 tempData <- mice(traits %>% dplyr::select(-MajVLA, -NbLeaflets, - TLP),m=5,maxit=50,meth='pmm',seed=500)
 summary(tempData)
@@ -164,7 +205,7 @@ completedData <- complete(tempData,1) #1 is choosing dataset 1 out of the 5
 
 A <- left_join(completedData, traits %>% dplyr::select(code, MajVLA, NbLeaflets,  TLP),  by = "code")
 
-write.csv(A, "./resources/DRYER_natura_imputed_traits.csv", row.names = FALSE)
+#write.csv(A, "./resources/DRYER_natura_imputed_traits.csv", row.names = FALSE)
 
 #inspecting data after imputation
 densityplot(tempData)
@@ -178,44 +219,37 @@ Only   gmin 6.9 % nas, StomatalDensity 4,2 % na, and  RootDiameter 1,4 % nas wer
 
 ## 16S
 ```{r}
-#microbio 16S clean
-load("./resources/Metabarlist_natura_clean_16S.Rdata")
-
-#traits imputed 
-traits <- read_csv("resources/DRYER_natura_imputed_traits.csv")
-
-
-natura_clean$samples <- left_join(natura_clean$samples, traits, by = "code")
-
-row.names(natura_clean$samples) <- natura_clean$samples$sample_id
-
-#with traits
-save(natura_clean, file = "./results/Metabarlist_natura_clean_16S_traits.Rdata")
+# #microbio 16S clean
+# load("./resources/Metabarlist_natura_clean_16S.Rdata")
+# 
+# #traits imputed 
+# traits <- read_csv("resources/DRYER_natura_imputed_traits.csv")
+# 
+# 
+# natura_clean$samples <- left_join(natura_clean$samples, traits, by = "code")
+# 
+# row.names(natura_clean$samples) <- natura_clean$samples$sample_id
+# 
+# #with traits
+# save(natura_clean, file = "./results/Metabarlist_natura_clean_16S_traits.Rdata")
 
 ```
 ##ITS
 ```{r}
 load("./resources/Metabarlist_natura_clean_ITS2.Rdata")
 
-#get authorization 
-googlesheets4::gs4_auth(scopes = "https://www.googleapis.com/auth/spreadsheets.readonly" )
+traits <- read.csv("./resources/DRYER_natura_imputed_traits.csv")
 
-traits <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "traits") 
-#add gmin
+traits$code <- as.character(traits$code) 
 
-gmin <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/13NVmdKXHo6wZKErSje-4_Iv8C-6uHz_KuBTiUL6oifE/edit#gid=1174632153", sheet = "gmin") %>% dplyr::select(Code, gmin)
-
-traits <- traits %>% left_join(gmin, by = "Code")
-
-traits <- traits %>% rename(code = Code)
-traits$code <- as.character(traits$code)
+traits <- traits %>% dplyr::select(-Family, -Genus, -Species)
 
 natura_clean$samples <- left_join(natura_clean$samples, traits, by = "code")
 
 row.names(natura_clean$samples) <- natura_clean$samples$sample_id
 
 #with traits
-save(natura_clean, file = "./results/Metabarlist_natura_clean_ITS2_traits.Rdata")
+save(natura_clean, file = "./resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
 
 ```
 
@@ -224,10 +258,25 @@ save(natura_clean, file = "./results/Metabarlist_natura_clean_ITS2_traits.Rdata"
 
 ```{r}
 #data
-load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2.Rdata")
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
 ```
 
 ## alpha diversity
+
+*Species richness* is the most intuitive and natural index of diversity, and I bet that it is used the most frequently in studies dealing with diversity. However, it is also the most sensitive to the difference in sampling
+effort, since it weights all species equally independent from their relative abundances, i.e. rare species count equally to common species although they are more likely to be undetected.
+
+*Shannon-Wiener* considers both species richness and evenness. Represents the uncertainty with which we can predict of which species will be one randomly selected individual in the community. If community contains only one species, the uncertainty is zero. The more species the community contains, the more uncertainty increases; in a diverse community, we are unlikely to guess of which species will be the randomly chosen individual. However, if community has many species, but only one (or few) prevails (many individuals of one or few species), uncertainty will not be so high, since we have high probability that randomly selected individual will be the most abundant species. This is why Shannon index increases with *richness* and evenness, and it puts more weight on the richness than on evenness. In real ecological data, values of H are usually between 1.5-3.5 (the units are bits of information); note that absolute value of the H depends on the base of the logarithm used for the calculation (usually log_e, where e =2.718). The maximum value of H index (Hmax) for community of given richness occurs at situation that it is perfectly even (all species have the same relative proportion)
+
+*Simpson* index is also considering both richness and evenness, but compared to Shannon it is more influenced by *evenness* than richness. It represents the
+probability that two randomly selected individuals will be of the
+same species. Since this probability decreases with increasing
+species richness, the Simpson index also decreases with richness,
+which is not too intuitive. For that reason, more meaningful is to use
+Gini-Simpson index, which is simply 1-Simpson index, and which
+with increasing richness increases (it is identical with Hurlbert’s
+probability of interspecific encounter, PIE). The values of D are in the range between 0 and 1 and the units is a probability. When the species richness of community exceeds 10, the values of Simpson index are mostly influenced by evenness.
+
 ```{r}
 #using vegan
 
@@ -294,13 +343,25 @@ plot_invS <- ggplot(df2, aes(x = name, y = invSimpson, fill = name)) +
   theme(axis.text.x = element_blank(), axis.title.x = element_blank())
 plot_invS
 
+#pielou
+df <- J %>% 
+  enframe() %>%
+  rename(Pielou= value, 
+         sample_id = name)
+
+df2 <- left_join(df2, df)
+
+plot_pielou<- ggplot(df2, aes(x = name, y = Pielou, fill = name)) +
+  geom_boxplot() +
+  labs(title = "Pielou - ITS natura_clean") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+plot_pielou
 
 #look at the same time Richness, shannon and inv_simpson per species
 
-r <- ggarrange(plot_richness, plot_shannon, plot_invS, ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+r <- ggarrange(plot_richness, plot_shannon, plot_invS, plot_pielou, ncol = 1, nrow = 4, common.legend = TRUE, legend = "bottom")
 r
-
-
 
 #plot leaf and root on same plot
 Richness <- df2 %>%
@@ -340,13 +401,26 @@ InvSimpson <- df2 %>%
   theme_minimal(base_size = 20)+
   theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom") 
 
-all_alpha <- ggarrange(Richness, Shannon, InvSimpson, labels = c('A', 'B', 'C'), ncol = 1, nrow = 3, common.legend = TRUE, legend = "bottom")
+
+Pielou <- df2 %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Pielou, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom") 
+
+all_alpha <- ggarrange(Richness, Shannon, InvSimpson, Pielou, labels = c('A', 'B', 'C', 'D'), ncol = 1, nrow = 4, common.legend = TRUE, legend = "bottom")
 all_alpha
 
 all_alpha <- annotate_figure(all_alpha, top = text_grob("ITS - Alpha-diversity indices", 
                color = "black", face = "bold", size = 20))
 
-#ggsave("./results/ITS_all_alpha_diversity.jpeg", all_alpha)
+ggsave("./results/ITS_all_alpha_diversity.jpeg", all_alpha)
 
 ```
 
@@ -691,6 +765,513 @@ Beta
 ggsave("./results/Beta_ITS.jpeg", Beta)
 ```
 
+## variance partitionning
+
+```{r}
+#null model
+model_null <- nlme::lme(Richness~ 1,  random=~1|name, data = df2, na.action = na.omit, method = "ML")
+
+#root traits
+model_root_trait <- nlme::lme(Richness ~ SRL + RootDiameter + RootLength_Total,  random=~1|name, data = df2, na.action = na.omit, method = "ML")
+
+#leaf traits
+model_leaf_trait <- nlme::lme(Richness  ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm,  random=~1|name, data = df2, na.action = na.omit, method = "ML")
+
+#location
+model_pcnm <-  nlme::lme(Richness ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = df2, na.action = na.omit, method = "ML")
+
+# Extract the variance components for each model
+Var_components_null <- lme4::VarCorr(model_null)
+Var_components_root <- lme4::VarCorr(model_root_trait)
+Var_components_leaf <- lme4::VarCorr(model_leaf_trait)
+Var_components_pcnm <- lme4::VarCorr(model_pcnm)
+
+# Extract the species (random) effect variances and the residual variance for each model
+sp_null <- as.numeric(Var_components_null[1,1])
+sp_root <- as.numeric(Var_components_root[1,1])
+sp_leaf <- as.numeric(Var_components_leaf[1,1])
+sp_pcnm <- as.numeric(Var_components_pcnm[1,1])
+
+res_null <- as.numeric(Var_components_null[2,1])
+res_root <- as.numeric(Var_components_root[2,1])
+res_leaf <- as.numeric(Var_components_leaf[2,1])
+res_pcnm <- as.numeric(Var_components_pcnm[2,1])
+
+# Obtain the total variance of the null model
+v_0 <- sp_null + res_null
+
+# Calculate the variance component linked to the root traits
+var_species_root <- round(100 * sp_root / v_0)
+var_res_root <- round(100 * res_root / v_0)
+var_trait_root <- round(100 - (var_species_root + var_res_root)) #only linked to the traits
+  
+# Calculate the variance component linked to the root traits
+var_species_leaf <- round(100 * sp_leaf / v_0)
+var_res_leaf <- round(100 * res_leaf / v_0)
+var_trait_leaf <- round(100 - (var_species_leaf + var_res_leaf)) #only linked to the traits
+
+# Calculate the variance component linked to the location
+var_species_loc <- round(100 * sp_pcnm / v_0)
+var_res_loc <- round(100 * res_pcnm / v_0)
+var_trait_loc <- round(100 - (var_species_loc + var_res_loc)) #only linked to the traits
+
+#calculate the variance linked to the species identity
+var_species_ID <- round(100 * sp_null / v_0)
+
+#calculate residual variance
+var_res_total <- round(100- (var_trait_leaf + var_trait_root + var_trait_loc+ var_species_ID))
+
+#organize for plottibng
+  Organ <- c("Leaf")
+  Diversity <- c("Richness")
+  Levels <- c( "Residual", "Species", "Location", "Leaf traits", "Root traits")
+  Variances <- c( var_res_total,var_species_ID, var_trait_loc, var_trait_leaf,  var_trait_root)
+vars.richness.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+
+#plot the results
+vars.richness.leaf$Levels <- as.factor(vars.richness.leaf$Levels)
+variance_plot<- vars.richness.leaf %>%  
+  mutate(Levels = factor(Levels, levels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Diversity)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#db7c26",  "#a7c957", "#bc4749", "#62929e", "#BBBBBB" ),
+                    breaks=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"),
+                    labels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("Fungi Variance partitioning")
+variance_plot
+```
+
+```{r}
+
+#function for variance partitioning
+Var_par <- function(Diversity, Mydata, Organ){
+
+  #Rename the trait column
+  colnames(Mydata)[which(colnames(Mydata) == Diversity)] <- "Diversity"  
+
+  #null model
+model_null <- nlme::lme(Diversity~ 1,  random=~1|name, data = Mydata, na.action = na.omit, method = "ML")
+
+#root traits
+model_root_trait <- nlme::lme(Diversity ~ SRL + RootDiameter + RootLength_Total,  random=~1|name, data = Mydata, na.action = na.omit, method = "ML")
+
+#leaf traits
+model_leaf_trait <- nlme::lme(Diversity  ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm,  random=~1|name, data = Mydata, na.action = na.omit, method = "ML")
+
+#location
+model_pcnm <-  nlme::lme(Diversity ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = Mydata, na.action = na.omit, method = "ML")
+
+# Extract the variance components for each model
+Var_components_null <- lme4::VarCorr(model_null)
+Var_components_root <- lme4::VarCorr(model_root_trait)
+Var_components_leaf <- lme4::VarCorr(model_leaf_trait)
+Var_components_pcnm <- lme4::VarCorr(model_pcnm)
+
+# Extract the species (random) effect variances and the residual variance for each model
+sp_null <- as.numeric(Var_components_null[1,1])
+sp_root <- as.numeric(Var_components_root[1,1])
+sp_leaf <- as.numeric(Var_components_leaf[1,1])
+sp_pcnm <- as.numeric(Var_components_pcnm[1,1])
+
+res_null <- as.numeric(Var_components_null[2,1])
+res_root <- as.numeric(Var_components_root[2,1])
+res_leaf <- as.numeric(Var_components_leaf[2,1])
+res_pcnm <- as.numeric(Var_components_pcnm[2,1])
+
+# Obtain the total variance of the null model
+v_0 <- sp_null + res_null
+
+# Calculate the variance component linked to the root traits
+var_species_root <- round(100 * sp_root / v_0)
+var_res_root <- round(100 * res_root / v_0)
+var_trait_root <- round(100 - (var_species_root + var_res_root)) #only linked to the traits
+  
+# Calculate the variance component linked to the root traits
+var_species_leaf <- round(100 * sp_leaf / v_0)
+var_res_leaf <- round(100 * res_leaf / v_0)
+var_trait_leaf <- round(100 - (var_species_leaf + var_res_leaf)) #only linked to the traits
+
+# Calculate the variance component linked to the location
+var_species_loc <- round(100 * sp_pcnm / v_0)
+var_res_loc <- round(100 * res_pcnm / v_0)
+var_trait_loc <- round(100 - (var_species_loc + var_res_loc)) #only linked to the traits
+
+#calculate the variance linked to the species identity
+var_species_ID <- round(100 * sp_null / v_0)
+
+#calculate residual variance
+var_res_total <- round(100- (var_trait_leaf + var_trait_root + var_trait_loc+ var_species_ID))
+
+#organize for plottibng
+  Organ <- c(Organ, Organ, Organ, Organ, Organ)
+  DiversityTrait <- c(Diversity, Diversity, Diversity, Diversity, Diversity)
+  Levels <- c( "Residual", "Species", "Location", "Leaf traits", "Root traits")
+  Variances <- c( var_res_total,var_species_ID, var_trait_loc, var_trait_leaf,  var_trait_root)
+  
+    return(data.frame(Organ, Diversity, Levels, Variances))
+}
+
+# Loop to calculate the variance partitioning in the leaves + roots
+var.root.fungi <- c()
+
+for (i in colnames(df2)[44:47]){
+  
+ var.root.fungi <- bind_rows( var.root.fungi, Var_par(Diversity = i, Mydata = df2 %>% filter(organ == "root"), Organ = "root"))
+  
+}
+
+
+var.leaf.fungi <- c()
+
+for (i in colnames(df2)[44:47]){
+  
+ 
+var.leaf.fungi <- bind_rows( var.leaf.fungi, Var_par(Diversity = i, Mydata = df2 %>% filter(organ == "leaf"), Organ = "leaf"))
+  
+}
+
+vars <- rbind(var.leaf.fungi, var.root.fungi)
+
+#plot
+variance_plot<- vars %>%  
+  mutate(Levels = factor(Levels, levels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Diversity)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#db7c26",  "#a7c957", "#bc4749", "#62929e", "#BBBBBB" ),
+                    breaks=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"),
+                    labels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("Fungi Variance partitioning")
+variance_plot
+```
+
+
+### leaf ITS - matrix
+```{r}
+# microbial data, hellinger transformed
+leaf_ITS <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+microbio.hel <- leaf_ITS$reads %>% decostand(., "hell")
+
+#trait data
+trait_st <- leaf_ITS$samples %>% dplyr::select(RootLength_Total , SRL ,RootDiameter , NbLeaves , LSWC , StomatalDensity  , LT , gmin , TLP) %>% decostand(., "standardize") # Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+
+#location data
+
+
+location <- leaf_ITS$samples %>% dplyr::select(MEM1,MEM2, MEM3, MEM4) #pcnm
+
+# Calculate variance partitioning
+vp <- varpart( decostand(leaf_ITS$reads, "hell"), ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm, # leaf traits
+               ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = leaf_ITS$samples)
+vp
+plot(vp)
+
+root_trait_vp <- vp$part$fract[1,3] *100 
+root_trait_vp <- 0
+leaf_trait_vp <- vp$part$fract[2,3] *100
+location_vp <- vp$part$fract[3,3] *100 #MEM 1+2+3+4
+species_vp <- vp$part$fract[4,3] *100 #name
+residual_vp <- 100 - (root_trait_vp +leaf_trait_vp + location_vp + species_vp) #residual
+
+Organ <- c("Leaf")
+  Phylum <- c("Fungi")
+  Levels <- c("Root traits", "Leaf traits", "Location", "Species", "Residuals")
+  Variances <- c(root_trait_vp,leaf_trait_vp,location_vp, species_vp, residual_vp )
+vars.fungi.leaf <-   data.frame(Organ, Phylum, Levels, Variances)
+vars.fungi.leaf
+#plot
+#vars
+#plot the results
+vars.fungi.leaf$Levels <- as.factor(vars.fungi.leaf$Levels)
+variance_plot<- vars.fungi.leaf %>%  
+  mutate(Levels = factor(Levels, levels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Phylum)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#db7c26",  "#a7c957", "#bc4749", "#62929e", "#BBBBBB" ),
+                    breaks=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"),
+                    labels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("Fungi Variance partitioning")
+variance_plot
+```
+
+###root ITS - matrix
+
+```{r}
+# microbial data, hellinger transformed
+root_ITS <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+microbio.hel <- leaf_ITS$reads %>% decostand(., "hell")
+
+# Calculate variance partitioning
+vp <- varpart( decostand(root_ITS$reads, "hell"), ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm, # leaf traits
+               ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = root_ITS$samples)
+vp
+plot(vp)
+
+root_trait_vp <- vp$part$fract[1,3] *100 
+root_trait_vp <- 0
+leaf_trait_vp <- vp$part$fract[2,3] *100
+location_vp <- vp$part$fract[3,3] *100 #MEM 1+2+3+4
+species_vp <- vp$part$fract[4,3] *100 #name
+residual_vp <- 100 - (root_trait_vp +leaf_trait_vp + location_vp + species_vp) #residual
+
+Organ <- c("Root")
+  Phylum <- c("Fungi")
+  Levels <- c("Root traits", "Leaf traits", "Location", "Species", "Residuals")
+  Variances <- c(root_trait_vp,leaf_trait_vp,location_vp, species_vp, residual_vp )
+vars.fungi.leaf <-   data.frame(Organ, Phylum, Levels, Variances)
+vars.fungi.leaf
+#plot
+#vars
+#plot the results
+vars.fungi.leaf$Levels <- as.factor(vars.fungi.leaf$Levels)
+variance_plot<- vars.fungi.leaf %>%  
+  mutate(Levels = factor(Levels, levels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Phylum)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#db7c26",  "#a7c957", "#bc4749", "#62929e", "#BBBBBB" ),
+                    breaks=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"),
+                    labels=c("Root traits", "Leaf traits", "Location", "Species", "Residuals"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("Fungi Variance partitioning")
+variance_plot
+```
+
+
+Shannon for leaf
+```{r}
+model_null <- nlme::lme(Shannon~ 1,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Shannon ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+#don't know how to include it
+model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Leaf")
+  Diversity <- c("Shannon")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.shannon.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+InvSimpson for leaf
+```{r}
+model_null <- nlme::lme(invSimpson~ 1,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(invSimpson ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.leaf, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Leaf")
+  Diversity <- c("invSimpson")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.invSimpson.leaf <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+Richness for root
+```{r}
+df2.root<- df2 %>% filter(organ == "root")
+model_null <- nlme::lme(Richness~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Richness ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("Richness")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.richness.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+Shannon for root
+```{r}
+model_null <- nlme::lme(Shannon~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(Shannon ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("Shannon")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.shannon.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+InvSimpson for root
+```{r}
+model_null <- nlme::lme(invSimpson~ 1,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+model_trait <- nlme::lme(invSimpson ~ RootShoot + LA_Total+ LSWC,  random=~1|name, data = df2.root, na.action = na.omit, method = "ML")
+
+#model_pcnm <-  nlme::lme(microbio ~ MEM1 + MEM2 + MEM3 + MEM4,  random=~1|Name, data = env, na.action = na.omit, method = "ML")
+
+ # Extract the variance components 
+  Var_components <-lme4::VarCorr(model_trait)
+  var_sp <- as.numeric(Var_components[1,1]) #for the random effects - species
+  var_res <- as.numeric(Var_components[2,1]) #model residual
+  
+  # Obtain the variance of the random effect in the null model.
+  random_variance_null <- as.numeric(lme4::VarCorr(model_null)[1,1])
+  
+  # Obtain the residual variance
+  residual_variance_null <- as.numeric(lme4::VarCorr(model_null)[2,1])
+  
+  # Obtain the total variance of the null model
+  v_0 <- random_variance_null + residual_variance_null
+  
+  # Calculate the variance component linked to the traits by substracting the residual variance of the model (var_res) and the variance explained by the random factor, the species (var_sp), from the variance of the null model
+ 
+  # Variance partitioning
+  var_sp <- round(100 * var_sp / v_0)
+  var_res <- round(100 * var_res / v_0)
+  var_trait <- round(100 - (var_sp + var_res))  # or it works also , var_envt <- v_0 - var_indv - var_sp Marion calcul
+  Organ <- c("Root")
+  Diversity <- c("invSimpson")
+  Levels <- c("Traits", "Species", "Residual")
+  Variances <- c(var_trait,var_sp,var_res)
+vars.invSimpson.root <-   data.frame(Organ, Diversity, Levels, Variances)
+```
+
+
+
+Plot
+```{r}
+vars <- rbind(vars.richness.leaf, vars.shannon.leaf, vars.invSimpson.leaf, vars.richness.root, vars.shannon.root, vars.invSimpson.root)
+#vars
+#plot the results
+vars$Levels <- as.factor(vars$Levels)
+variance_plot<- vars %>%  
+  mutate(Levels = factor(Levels, levels=c("Traits", "Species", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Diversity)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#029A88",  "#CCBC44", "#BBBBBB" ),
+                    breaks=c("Traits", "Species", "Residual" ),
+                    labels=c("Traits", "Species", "Residual" ))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)+
+  ggtitle("16S Variance partitioning")
+variance_plot
+```
+
+Relative contribution of the different predictors used to model bacterial and fungal composition and diversity. Panels represent results from variation partitioning modelling aiming to identify the percentage variance of bacterial and fungal community composition and diversity explained by plant attributes (RootShoot + LA_Total+ LSWC), species identity and climate in Australia and England. Unique and shared variance from plant cover, diversity and functional traits in predicting microbial community composition and diversity were merged in this figure for simplicity.
 
 
 # 16S - Leaf & Root
