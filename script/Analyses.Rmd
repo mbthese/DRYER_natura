@@ -337,7 +337,7 @@ tempData$imp$gmin
 
 Only   gmin 6.9 % nas, StomatalDensity 4,2 % na, and  RootDiameter 1,4 % nas were imputed. TLP 22 % too much and MajVLA 75 % too much and Nb_leaflets not imputed because it does not make any sense.
 
-## Figure 1 - trait variation
+## Trait variation (Figure 1)
 
 *log transformation* to help in addressing issues related to data distribution and scale. 
 
@@ -738,7 +738,7 @@ write.csv(traits_norm_together, "./resources/DRYER_natura_imputed_traits_norm.cs
 ```
 
 
-## Figure 2 - PCA
+## PCA (Figure 2)
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 
 ###########################################
@@ -1043,7 +1043,7 @@ write.csv(table, "Shannon_root_fungi.csv")
 ```
 
 
-## beta diversity
+## beta diversity (Figure 3)
 
 How similar in microbial composition each sample is to other samples of different types, or between sample variability.
 
@@ -1673,7 +1673,7 @@ write.csv(table, "Shannon_root_bacteria.csv")
 ```
 
 
-## beta diversity
+## beta diversity (Figure 4)
 
 ```{r}
 # calculate Bray-Curtis distance using the vegan package
@@ -2122,4 +2122,14 @@ beta_drivers_plot <- leaf_fungi + Leaf_bacteria + root_fungi + root_bacteria
 ggsave(filename = "beta_drivers2.jpeg", plot= beta_drivers_plot, bg= "white", width = 16, height = 12, dpi = 600)
 
 ```
+
+#NDV (Figure 5)
+
+It is based on the approach described in the paper by Tucker et al. (2016), and it is an adaptation of the method proposed by Stegen et al. (2012).
+
+For details of scripts, please refer to :
+
+1- NDV_script.R  : R code for the analses.
+2- myscript : bash code for launch the NDV_script.R in the genotool cluster (Bioinfo Genotoul, https://doi.org/10.15454/1.5572369328961167E12)
+
 
