@@ -1,0 +1,390 @@
+---
+title: "dbRDA and varpart"
+author: "Marion Boisseaux"
+date: "2023-05-22"
+output: html_document
+---
+
+# ITS 
+
+Bray–Curtis distances were used for microbial composition in this analysis.
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+```{r}
+# Calculate Bray-Curtis dissimilarity matrix on relative abundances 
+microbio <- vegdist(vegan::decostand(leaf$reads, method = "hellinger"), method = "bray") ##hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+#traits
+names(leaf$samples)
+env <- leaf$samples[,c(12, 21,23, 30, 32:42 )]
+
+names(env)
+# Prior to constructing the model, leaf16S functional trait variables were mean-centered and scaled to unit variance.
+env.scale <- scale(env[,c(2:11)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <- as.data.frame(env.scale)
+names(env.scale)
+name <- env[,c(1)] 
+location <- env[c(11:14)]
+env.scale <- cbind(env.scale, location)
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#correlation between leaf16S traits
+corr <-cor(env.scale[,-c(15)],method="spearman")
+p.mat=cor.mtest(env.scale[,-c(15)],conf.level=0.95)
+corrplot(corr)
+names(env.scale)
+
+#dbRDA
+beta.leaf16S <-dbrda(microbio ~ . , env.scale[,-c(15)]) 
+beta.leaf16S
+plot(beta.leaf16S)
+anova(beta.leaf16S) #0.004 **
+set.seed(2) ;anova(beta.leaf16S, by= "terms") 
+vif.cca(beta.leaf16S) #above 5?
+RsquareAdj(beta.leaf16S)
+
+# $r.squared
+# $r.squared
+# [1] 0.2089318
+# 
+# $adj.r.squared
+# [1] 0.02851275
+
+beta.leaf16S <-capscale(microbio ~ . , env.scale[,-c(15)]) 
+
+#test with ordi2step
+null_model <- dbrda(microbio ~ 1 , data = env.scale[,-c(15)]) 
+set.seed(5); model_ordi2 <- ordistep (null_model, scope = formula(beta.leaf16S), direction = c("both"))
+vif.cca(model_ordi2)
+# Plot 
+
+model_retenu <- dbrda(microbio ~ MEM1 + MEM2 + LA_rwc + LSWC, env.scale[,-c(14)]) 
+summary(model_retenu)
+RsquareAdj(model_retenu)$adj.r.squared #2 %
+
+#for the plot calculate axis
+model_retenu
+
+# Set up the plot
+smry <- summary(model_retenu)
+df1  <- data.frame(smry$sites[,1:2]) # dbRDA1 + 2 site scores
+complement <- leaf$samples %>% dplyr::select(sample_id, Name)
+df1$sample_id <- rownames(df1)
+df1 <- left_join(df1, complement)
+df2  <- data.frame(smry$biplot[,1:2])     # loadings for PC1 and PC2
+df2$trait <- rownames(df2)
+df2 <- df2 %>% mutate(trait=dplyr::recode(trait, 'LA_rwc'='LA'))
+
+rda.plot.species <- ggplot(df1, aes(x=dbRDA1, y=dbRDA2)) + 
+   geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") +
+  geom_segment(data=df2, aes(x=0, xend=dbRDA1, y=0, yend=dbRDA2), color="black", arrow=arrow(length=unit(0.01,"npc"))) +
+  #geom_text(data=df2,aes(x=dbRDA1,y=dbRDA2,label=c(trait),              hjust=0.5*(1-sign(dbRDA1)),vjust=0.5*(1-sign(dbRDA2))), color= c("#5bb349", "#1e81b0", "#1e81b0", "#5bb349", "#1e81b0", "#dec33c", "#dec33c"), size=8)+
+  geom_point(data=df1, aes(x=dbRDA1, y=dbRDA2, color = Name))+
+ xlim(c(-2.1,2.1))+
+  ylim(c(-2,2.2))+
+  theme_classic()
+rda.plot.species
+
+rda.plot.trait <- ggplot(df1, aes(x=dbRDA1, y=dbRDA2)) + 
+   geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") +
+  geom_segment(data=df2, aes(x=0, xend=dbRDA1, y=0, yend=dbRDA2), color="black", arrow=arrow(length=unit(0.01,"npc"))) +
+  geom_text(data=df2,aes(x=dbRDA1,y=dbRDA2,label=c(trait),              hjust=0.55*(1-sign(dbRDA1)),vjust=0.5*(1-sign(dbRDA2))), color= c("#1e81b0", "#1e81b0","#5bb349", "#5bb349"), size=8)+
+  geom_point(data=df1, aes(x=dbRDA1, y=dbRDA2))+
+xlim(c(-2.1,2.1))+
+  ylim(c(-2,2.2))+
+  theme_classic()
+rda.plot.trait
+
+ggarrange(rda.plot.species, rda.plot.trait)
+
+#vert: #5bb349
+#borwn: #dec33c
+
+```
+
+```{r}
+
+# Calculate Bray-Curtis dissimilarity matrix on relative abundances 
+microbio <- vegdist(vegan::decostand(root$reads, method = "hellinger"), method = "bray") ##hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+#traits
+names(root$samples)
+env <- root$samples[,c(12, 21, 30, 32:42 )]
+
+names(env)
+# Prior to constructing the model, leaf16S functional trait variables were mean-centered and scaled to unit variance.
+env.scale <- scale(env[,c(2:10)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <- as.data.frame(env.scale)
+names(env.scale)
+name <- env[,c(1)] 
+location <- env[c(11:14)]
+env.scale <- cbind(env.scale, location)
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#correlation between leaf16S traits
+corr <-cor(env.scale[,-c(14)],method="spearman")
+p.mat=cor.mtest(env.scale[,-c(14)],conf.level=0.95)
+corrplot(corr)
+names(env.scale)
+
+#dbRDA
+beta.rootITS <-dbrda(microbio ~ . , env.scale[,-c(14)]) 
+beta.rootITS
+anova(beta.rootITS) #0.001 ***
+set.seed(9); anova.cca(beta.rootITS, by= "terms", permutations = 1000) 
+
+# Permutation test for dbrda under reduced model
+# Terms added sequentially (first to last)
+# Permutation: free
+# Number of permutations: 999
+# 
+#Model: dbrda(formula = microbio ~ RootLength_Total + LSWC + StomatalDensity + SRL + RootDiameter + LT + gmin + SLA + LA_rwc + MEM1 + MEM2 + MEM3 + MEM4 + name, data = env.scale)
+#                  Df SumOfSqs      F  Pr(>F)  
+# Model: dbrda(formula = microbio ~ RootLength_Total + LSWC + StomatalDensity + SRL + RootDiameter + LT + gmin + SLA + LA_rwc + MEM1 + MEM2 + MEM3 + MEM4, data = env.scale[, -c(14)])
+#                  Df SumOfSqs      F  Pr(>F)  
+# RootLength_Total  1   0.3650 0.9735 0.55145  
+# LSWC              1   0.4760 1.2694 0.04096 *
+# StomatalDensity   1   0.4009 1.0692 0.28671  
+# SRL               1   0.3653 0.9742 0.49550  
+# RootDiameter      1   0.3628 0.9675 0.53846  
+# LT                1   0.3348 0.8930 0.77822  
+# gmin              1   0.3722 0.9926 0.40659  
+# SLA               1   0.4281 1.1418 0.13387  
+# LA_rwc            1   0.2944 0.7850 0.96503  
+# MEM1              1   0.3189 0.8504 0.87712  
+# MEM2              1   0.4486 1.1964 0.09790 .
+# MEM3              1   0.4344 1.1585 0.13986  
+# MEM4              1   0.3943 1.0515 0.32468  
+# Residual         44  16.4991                 
+vif.cca(beta.rootITS) #above 5?
+
+#test with ordi2step
+null_model <- dbrda(microbio ~ 1 , data = env.scale[,-c(14)]) 
+set.seed(10); model_ordi2 <- ordiR2step(null_model, scope = formula(beta.rootITS), direction = c("both"))
+vif.cca(model_ordi2)
+
+# Plot 
+
+model_retenu <- dbrda(microbio ~ LSWC ,env.scale[,-c(14)]) 
+summary(model_retenu)
+RsquareAdj(model_retenu)$adj.r.squared #0.4 %
+
+plot(model_retenu)
+
+#for the plot calculate axis
+model_retenu
+
+# Set up the plot
+smry <- summary(model_retenu)
+df1  <- data.frame(smry$sites[,1:2]) # dbRDA1 +MDS1 2 site scores
+complement <- root$samples %>% dplyr::select(sample_id, Name, LSWC)
+df1$sample_id <- rownames(df1)
+df1 <- left_join(df1, complement)
+df2  <- data.frame(smry$biplot[,1:2])     # loadings for PC1 and PC2
+df2 <- t(df2)
+df2 <- as.data.frame(df2)
+df2$trait <- "LSWC"
+
+rda.plot.species <- ggplot(df1, aes(x=dbRDA1, y=MDS1)) + 
+   geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") +
+  geom_segment(data=df2, aes(x=0, xend=dbRDA1, y=0, yend=MDS1), color="black", arrow=arrow(length=unit(0.01,"npc"))) +
+  geom_text(data=df2,aes(x=dbRDA1,y=MDS1,label=c(trait), hjust=0.55*(1-sign(dbRDA1))), color= c("#5bb349"), size = 8)+
+    geom_point(data=df1, aes(x=dbRDA1, y=MDS1, color = LSWC))+
+ xlim(c(-2,2))+
+  ylim(c(-1.5,1.5))+
+  theme_classic()
+rda.plot.species
+
+```
+
+
+
+
+#16S
+
+calculated a Bray–Curtis dissimilarity matrix based on endophyte relative abundance data. 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+leaf16S <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# Calculate Bray-Curtis dissimilarity matrix on relative abundances 
+microbio <- vegdist(vegan::decostand(leaf16S$reads, method = "hellinger"), method = "bray") ##hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+#traits
+names(leaf16S$samples)
+env <- leaf16S$samples[,c(12, 21, 30, 32:42 )]
+
+names(env)
+# Prior to constructing the model, leaf16S functional trait variables were mean-centered and scaled to unit variance.
+env.scale <- scale(env[,c(2:10)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <- as.data.frame(env.scale)
+names(env.scale)
+name <- env[,c(1)] 
+location <- env[c(11:14)]
+env.scale <- cbind(env.scale, location)
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#correlation between leaf16S traits
+corr <-cor(env.scale[,-c(14)],method="spearman")
+p.mat=cor.mtest(env.scale[,-c(14)],conf.level=0.95)
+corrplot(corr) #nbleaf16Slets, TLP and MAjVLA have NAs
+names(env.scale)
+
+#dbRDA
+beta.leaf16S <-dbrda(microbio ~ . ,env.scale[,-c(14)]) 
+beta.leaf16S
+anova(beta.leaf16S)
+set.seed(3) ; anova(beta.leaf16S, by= "terms") 
+vif.cca(beta.leaf16S) #above 5?
+
+
+# new model for bacteria leaf 
+model_bac_leaf <- dbrda(microbio ~ . ,env.scale[,-c(14)]) 
+model_bac_leaf 
+anova(model_bac_leaf) 
+
+#test with ordi2step
+null_model <- dbrda(microbio ~ 1 , data = env.scale[,-c(14)]) 
+
+model_ordi2 <- ordiR2step (null_model, scope = formula(model_bac_leaf), direction = c("both"))
+
+```
+
+This results in the null model 
+
+Now, the roots
+
+```{r}
+root16S <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+
+# Calculate Bray-Curtis dissimilarity matrix on relative abundances 
+microbio <- vegdist(vegan::decostand(root16S$reads, method = "hellinger"), method = "bray") ##hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+#traits
+names(root16S$samples)
+env <- root16S$samples[,c(12, 21, 30, 32:42 )]
+
+names(env)
+# Prior to constructing the model, leaf16S functional trait variables were mean-centered and scaled to unit variance.
+env.scale <- scale(env[,c(2:10)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <- as.data.frame(env.scale)
+names(env.scale)
+name <- env[,c(1)] 
+location <- env[c(11:14)]
+env.scale <- cbind(env.scale, location)
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#correlation between leaf16S traits
+corr <-cor(env.scale[,-c(14)],method="spearman")
+p.mat=cor.mtest(env.scale[,-c(14)],conf.level=0.95)
+corrplot(corr)
+names(env.scale)
+
+#dbRDA
+beta.root16S <-dbrda(microbio ~ . , env.scale[,-c(14)]) 
+beta.root16S
+set.seed(56) ; anova(beta.root16S) #0.001 ***
+set.seed(47); anova(beta.root16S, by= "terms") 
+vif.cca(beta.root16S) #above 5?
+
+
+#test with ordi2step
+null_model <- dbrda(microbio ~ 1 , data = env.scale[,-c(14)]) 
+set.seed(6); model_ordi2 <- ordiR2step (null_model, scope = formula(beta.root16S), direction = c("both"))
+vif.cca(model_ordi2)
+# Plot 
+
+model_retenu <- dbrda(microbio ~ LSWC + MEM2 + MEM1 + LA_rwc + MEM3 + SRL + RootLength_Total ,env.scale[,-c(14)]) 
+summary(model_retenu)
+RsquareAdj(model_retenu)$adj.r.squared #10 %
+plot(model_retenu)
+
+#for the plot calculate axis
+model_retenu
+#dbRDA1 = 0.7523*0.2015*100 fitted
+#dbRDA = 0.7523*0.7985
+#dbRDA2 = 0.3808*0.2015*100
+#for the legend of the plot:
+#The first axis (dbRDA1) captures 15.2% of fitted and 26% of total variation between the samples’ taxonomic profiles; the second (dbRDA2) captures 16% of fitted and 8% of total variation.
+
+# Set up the plot
+smry <- summary(model_retenu)
+df1  <- data.frame(smry$sites[,1:2]) # dbRDA1 + 2 site scores
+complement <- root16S$samples %>% dplyr::select(sample_id, Name)
+df1$sample_id <- rownames(df1)
+df1 <- left_join(df1, complement)
+df2  <- data.frame(smry$biplot[,1:2])     # loadings for PC1 and PC2
+df2$trait <- rownames(df2)
+df2 <- df2 %>% mutate(trait=dplyr::recode(trait, 'LA_rwc'='LA', 'RootLength_Total'='RL'))
+
+rda.plot.species <- ggplot(df1, aes(x=dbRDA1, y=dbRDA2)) + 
+   geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") +
+  geom_segment(data=df2, aes(x=0, xend=dbRDA1, y=0, yend=dbRDA2), color="black", arrow=arrow(length=unit(0.01,"npc"))) +
+  #geom_text(data=df2,aes(x=dbRDA1,y=dbRDA2,label=c(trait),              hjust=0.5*(1-sign(dbRDA1)),vjust=0.5*(1-sign(dbRDA2))), color= c("#5bb349", "#1e81b0", "#1e81b0", "#5bb349", "#1e81b0", "#dec33c", "#dec33c"), size=8)+
+  geom_point(data=df1, aes(x=dbRDA1, y=dbRDA2, color = Name))+
+ xlim(c(-2,2.4))+
+  ylim(c(-4,1.3))+
+  theme_classic()
+rda.plot.species
+
+rda.plot.trait <- ggplot(df1, aes(x=dbRDA1, y=dbRDA2)) + 
+   geom_hline(yintercept=0, linetype="dotted") +
+  geom_vline(xintercept=0, linetype="dotted") +
+  geom_segment(data=df2, aes(x=0, xend=dbRDA1, y=0, yend=dbRDA2), color="black", arrow=arrow(length=unit(0.01,"npc"))) +
+  geom_text(data=df2,aes(x=dbRDA1,y=dbRDA2,label=c(trait),              hjust=0.55*(1-sign(dbRDA1)),vjust=0.5*(1-sign(dbRDA2))), color= c("#5bb349", "#1e81b0", "#1e81b0", "#5bb349", "#1e81b0", "#dec33c", "#dec33c"), size=8)+
+  geom_point(data=df1, aes(x=dbRDA1, y=dbRDA2))+
+ xlim(c(-2,2.4))+
+  ylim(c(-4,1.3))+
+  theme_classic()
+rda.plot.trait
+
+ggarrange(rda.plot.species, rda.plot.trait)
+
+#vert: #5bb349
+#borwn: #dec33c
+#the arch effect is likely representative of niche differentiation of bacterial communities. The bacteria that thrive in pteoff tend not to exist in tacmel, and vice versa
+
+```
+
+
+#table of all db-RDA
+```{r}
+#get authorization 
+googlesheets4::gs4_auth(scopes = "https://www.googleapis.com/auth/spreadsheets.readonly" )
+
+#googlesheet
+Plot_table <- googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/1Z_48xj033NYt0-JdDyCmphKhRftW4vZqVPQbJd7Q7AA/edit#gid=0")
+
+options(knitr.kable.NA = '')
+Plot_table %>%
+  kbl(caption = "Effects of the host plant species, plant, leaf and root traits, and spatial predictors from the dbRDA. Bold values emphasize on significant effects (P < 0.05). ", escape = FALSE, digits = 2) %>%
+  row_spec(c(0, 1),bold = TRUE) %>% 
+  collapse_rows(columns = 2) %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+
+  save_kable(file = "../Tables_SI/Plot_info_summary.png", zoom = 5)
+```
+
+#var part
+
+

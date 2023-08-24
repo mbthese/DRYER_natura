@@ -1,0 +1,52 @@
+---
+title: "varpart heid"
+author: "Marion Boisseaux"
+date: "2023-05-26"
+output: html_document
+---
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                           indices = natura_clean$samples$organ == "leaf")
+
+microbio.hel <- leaf$reads %>% decostand(., "hell")
+dist.compo <- vegdist(microbio.hel, method = "bray")
+
+model_full <- dbrda(dist.compo ~ SRL + RootDiameter + RootLength_Total + LSWC + SLA+ LA_rwc + LT + gmin + MEM1 + MEM2+ MEM3+MEM4+ StomatalDensity+ Condition(name + Height), data = leaf$samples, distance = "bray" )
+summary(model_full)
+
+anova(model_full)#oui significatif
+RsquareAdj(model_full) #0.02035433
+
+model_racine <- dbrda(dist.compo ~ SRL + RootDiameter + RootLength_Total + Condition(name + Height), data = leaf$samples, distance = "bray" )
+summary(model_racine)
+RsquareAdj(model_racine) #0.0005159827
+
+varpart(dist.compo, X= ~SRL + RootDiameter + RootLength_Total, ~LSWC + SLA+ LA_rwc + LT + gmin + StomatalDensity, ~ MEM1 + MEM2+ MEM3+MEM4, ~name, data= leaf$samples)
+
+sel.fs_dbRDA <- adespatial::forward.sel(microbio.hel, leaf$samples[c(21,23, 30, 32,33,34,35,36,37,38:42)], alpha = 0.05,  nperm = 499)
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                           indices = natura_clean$samples$organ == "root")
+
+microbio.hel.root <- root$reads %>% decostand(., "hell")
+dist.compo.root <- vegdist(microbio.hel.root, method = "bray")
+
+sel.fs_dbRDA.root <- adespatial::forward.sel(microbio.hel.root, root$samples[c(21,23, 30, 32,33,34,35,36,37,38:42)], alpha = 0.05,  nperm = 499)
+
+
+#bacterie
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                           indices = natura_clean$samples$organ == "leaf")
+microbio.hel <- leaf$reads %>% decostand(., "hell")
+
+sel.fs_dbRDA.leaf.16S <- adespatial::forward.sel(microbio.hel, leaf$samples[c(21,23, 30, 32,33,34,35,36,37,38:42)], alpha = 0.05,  nperm = 499)
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                           indices = natura_clean$samples$organ == "root")
+microbio.hel.16S.root <- root$reads %>% decostand(., "hell")
+
+sel.fs_dbRDA.16S.root <- adespatial::forward.sel(microbio.hel.16S.root, root$samples[c(21,23, 30, 32,33,34,35,36,37,38:42)], alpha = 0.05,  nperm = 499)
+```
+

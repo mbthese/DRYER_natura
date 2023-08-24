@@ -1,0 +1,601 @@
+---
+title: "Supplementary"
+author: "Marion Boisseaux"
+date: "2023-05-30"
+output: html_document
+---
+
+#Data
+
+```{r}
+#data ITS
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# data 16S
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+#save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf_traits.Rdata")
+```
+
+
+
+# Alpha diversity
+
+*Species richness* is the most intuitive and natural index of diversity, and I bet that it is used the most frequently in studies dealing with diversity. However, it is also the most sensitive to the difference in sampling
+effort, since it weights all species equally independent from their relative abundances, i.e. rare species count equally to common species although they are more likely to be undetected.
+
+*Shannon-Wiener* considers both species richness and evenness. Represents the uncertainty with which we can predict of which species will be one randomly selected individual in the community. If community contains only one species, the uncertainty is zero. The more species the community contains, the more uncertainty increases; in a diverse community, we are unlikely to guess of which species will be the randomly chosen individual. However, if community has many species, but only one (or few) prevails (many individuals of one or few species), uncertainty will not be so high, since we have high probability that randomly selected individual will be the most abundant species. This is why Shannon index increases with *richness* and evenness, and it puts more weight on the richness than on evenness. In real ecological data, values of H are usually between 1.5-3.5 (the units are bits of information); note that absolute value of the H depends on the base of the logarithm used for the calculation (usually log_e, where e =2.718). The maximum value of H index (Hmax) for community of given richness occurs at situation that it is perfectly even (all species have the same relative proportion)
+
+*Simpson* index is also considering both richness and evenness, but compared to Shannon it is more influenced by *evenness* than richness. It represents the
+probability that two randomly selected individuals will be of the
+same species. Since this probability decreases with increasing
+species richness, the Simpson index also decreases with richness,
+which is not too intuitive. For that reason, more meaningful is to use
+Gini-Simpson index, which is simply 1-Simpson index, and which
+with increasing richness increases (it is identical with Hurlbert’s
+probability of interspecific encounter, PIE). The values of D are in the range between 0 and 1 and the units is a probability. When the species richness of community exceeds 10, the values of Simpson index are mostly influenced by evenness.
+
+## alpha diversity
+
+```{r vegan diversity analyses, eval=FALSE, include=FALSE}
+#using vegan
+Richness <- specnumber(x = natura_clean$reads)
+H <- vegan::diversity(x = natura_clean$reads, index = "shannon") #The default is to use natural logarithms. But if base = 2, it has theoretical justification. takes into account species abundance and evenness
+D1 <- vegan::diversity(x = natura_clean$reads, index = "simpson")
+D2 <- vegan::diversity(x = natura_clean$reads, index = "invsimpson", base = 2)
+J <- H/log(specnumber(x = natura_clean$reads)) #Pielou’s evenness
+```
+
+
+##on rarefied 
+```{r}
+set.seed(1234)
+#for leaves
+
+#manually
+leaf$pcrs%>%
+  group_by(sample_id) %>%
+  summarize(n_seqs= sum(nb_reads_postmetabaR)) %>%
+  summarize(min = min(n_seqs)) #6317 for leaves
+
+#or other way to find out
+S <- specnumber(x = leaf$reads) # observed number of species
+(raremax <- min(rowSums(x = leaf$reads))) #6317 for leaves
+
+#rarefy : random iteration and rrarefy is one iteration of the rarefy/ I could calculate shannon on rrarefy and do it multiple times and get an average of shannon afterwards.
+rarefied_leaf_ITS <- vegan::rarefy(x = leaf$reads, raremax) %>%#expected number of taxa (motu?) that we would see for a given sampling depth, #generates one randomly rarefied community data frame or vector of given sample size.
+  as_tibble(rownames = "sample_id") %>%
+  dplyr::select(sample_id, OTU =value)
+
+#rarefaction for leaves: multiple random iteration
+leaf_rarecurve_data <- rarecurve(x = leaf$reads, step = 20, sample = raremax, col = "blue", cex = 0.6)
+map_dfr(leaf_rarecurve_data, bind_rows) %>%
+  bind_cols(sample_id = rownames(leaf$reads),.) %>%
+  pivot_longer(-sample_id)%>%
+  drop_na() %>%
+  mutate(n_seqs = as.numeric(str_replace(name, "N", ""))) %>%
+  dplyr::select(-name)%>%
+  ggplot(aes(x=n_seqs, y=value, group=sample_id)) +
+  geom_vline(xintercept = 6317, color = "gray")+
+  geom_line()+
+  theme_classic()+
+  ggtitle("ITS - leaf rarefaction curve with minimal sequencing depth")
+
+#Shannon index on rarefied OTUs to sequencing depth of 6317
+shannon_iteration <- function(){
+
+    leaf$reads %>%
+    rrarefy(sample=raremax) %>%
+    vegan::diversity() 
+
+}
+
+#Calculate multiple shannon on multiple rarefied datasets
+shannon_leaf <- replicate(100, shannon_iteration()) %>%
+  as_tibble(rownames="sample_id", .name_repair = "unique") %>%
+  pivot_longer(-sample_id) %>%
+  group_by(sample_id) %>%
+  summarize(shannon_average = mean(value), shannon_std = sd(value))
+shannon_leaf$organ <- "leaf"
+
+#other code
+leaf_plot <- plot(S, Srare, xlab = "Observed No. of Species", ylab = "Rarefied No. of Species")
+abline(0, 1)
+leaf_rarecurve_data <- rarecurve(x = leaf$reads, step = 20, sample = raremax, col = "blue", cex = 0.6)
+
+leaf.raref = hill_rarefaction(leaf, nboot = 20, nsteps = 10)
+head(leaf.raref$hill_table)
+gghill_rarefaction(leaf.raref)
+material <- leaf$samples$Genus[match(leaf$pcrs$sample_id, rownames(leaf$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(leaf$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+leaf_plot2 <- gghill_rarefaction(leaf.raref, group=material)  # Plot
+leaf_plot2 + scale_fill_manual(values = c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")) +
+  labs(color="Leaf fungi rarefaction curves colored by species")
+
+
+#For roots
+
+S <- specnumber(x = root$reads) # observed number of species
+raremax_root <- min(rowSums(x = root$reads)) #6317 for leaves
+
+#rarefy : random iteration and rrarefy is one iteration of the rarefy/ I could calculate shannon on rrarefy and do it multiple times and get an average of shannon afterwards.
+rarefied_root_ITS <- vegan::rarefy(x = root$reads, raremax_root) %>%#expected number of taxa (motu?) that we would see for a given sampling depth, #generates one randomly rarefied community data frame or vector of given sample size.
+  as_tibble(rownames = "sample_id") %>%
+  dplyr::select(sample_id, OTU =value)
+
+#rarefaction for leaves: multiple random iteration
+root_rarecurve_data <- rarecurve(x = root$reads, step = 20, sample = raremax_root, col = "blue", cex = 0.6)
+map_dfr(root_rarecurve_data, bind_rows) %>%
+  bind_cols(sample_id = rownames(root$reads),.) %>%
+  pivot_longer(-sample_id)%>%
+  drop_na() %>%
+  mutate(n_seqs = as.numeric(str_replace(name, "N", ""))) %>%
+  dplyr::select(-name)%>%
+  ggplot(aes(x=n_seqs, y=value, group=sample_id)) +
+  geom_vline(xintercept = 2434, color = "gray")+
+  geom_line()+
+  theme_classic()+
+  ggtitle("ITS - root rarefaction curve with minimal sequencing depth")
+
+#Shannon index on rarefied OTUs to sequencing depth of 2434
+shannon_iteration_root <- function(){
+
+    root$reads %>%
+    rrarefy(sample=raremax_root) %>%
+    vegan::diversity() 
+
+}
+
+#Calculate multiple shannon on multiple rarefied datasets
+shannon_root <- replicate(100, shannon_iteration_root()) %>%
+  as_tibble(rownames="sample_id", .name_repair = "unique") %>%
+  pivot_longer(-sample_id) %>%
+  group_by(sample_id) %>%
+  summarize(shannon_average = mean(value), shannon_std = sd(value))
+shannon_root$organ <- "root"
+
+#other root code
+root.raref = hill_rarefaction(root, nboot = 20, nsteps = 10)
+head(root.raref$hill_table)
+gghill_rarefaction(root.raref)
+material <- root$samples$Genus[match(root$pcrs$sample_id, rownames(root$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(root$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+root_plot2 <- gghill_rarefaction(root.raref, group=material)  # Plot
+root_plot2 + scale_fill_manual(values = c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")) +
+  labs(color="root fungi rarefaction curves colored by species")
+
+
+#plots
+shannon_leaf <- bind_cols(shannon_leaf, Genus = leaf$samples$Genus)
+shannon_root <- bind_cols(shannon_root, Genus = root$samples$Genus)
+shannon_leaf <- bind_cols(shannon_leaf, Species = leaf$samples$Species)
+shannon_root <- bind_cols(shannon_root, Species = root$samples$Species)
+shannon_data <- bind_rows(shannon_leaf, shannon_root)
+shannon_data %>%
+    mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+   ggplot() +
+  aes(x = name, y = shannon_average, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+    labs(y= "Averaged Shannon - fungi leaf") +
+ theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+
+#anova
+shannon.anova<-aov(shannon_average ~ name + organ+ name:organ, shannon_data)
+summary(shannon.anova)
+
+shannon.anova.leaf<-aov(shannon_average ~ name, shannon_leaf)
+summary(shannon.anova.leaf) #7.46e-07
+shannon.anova.root<-aov(shannon_average ~ name, shannon_root)
+summary(shannon.anova.root) #0.00496
+
+#Tukey
+shannon.tukey <- TukeyHSD(shannon.anova.leaf)
+#add letters for leaf ITS
+library(multcompView)
+cld<- multcompView::multcompLetters4(shannon.anova.leaf, shannon.tukey)
+letters<- as.data.frame.list(cld$name) #comapraison intra organ, inter espèce
+TK <- group_by(shannon_leaf, name)%>%
+  summarise(mean=mean(shannon_average), 
+            quant= quantile(shannon_average, probs = 0.75))%>%
+  arrange(desc(mean))
+TK$letters<- letters$Letters
+
+#Tukey
+shannon.tukey.root <- TukeyHSD(shannon.anova.root)
+#add letters for root ITS
+cld.root<- multcompView::multcompLetters4(shannon.anova.root, shannon.tukey.root)
+letters.root<- as.data.frame.list(cld.root$name) #comapraison intra organ, inter espèce
+TK.root <- group_by(shannon_root, name)%>%
+  summarise(mean=mean(shannon_average), 
+            quant= quantile(shannon_average, probs = 0.75))%>%
+  arrange(desc(mean))
+TK.root$letters<- letters.root$Letters
+
+#plot averaged shannon leaf ITS
+shannon_plot_leaf_ITS <-ggplot(shannon_leaf, aes(name, shannon_average, fill= organ))+
+  geom_boxplot()+
+ scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+  labs(y= "", x="")+
+  theme_minimal(base_size = 14)+
+  geom_text(data= TK,aes(label=letters, x= name,y= quant), vjust = -0.2, hjust = -0.1, size = 6, color = "black") + theme(axis.text.x = element_blank(),legend.text = element_text(face='italic'), legend.position = "bottom")+
+  ylim(0, 9)+
+  theme(plot.title = element_text(hjust = 0.5, size = 15))
+
+
+
+```
+
+##not rarefied
+
+```{r}
+#bacteria data
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+
+Shannon_16S <- natura_clean$samples %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02")
+  ) +
+    labs(y= "Shannon - bacteria") +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+
+#Fungi data
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+
+Shannon_ITS <-  natura_clean$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  labs(y= "Shannon - fungi") +
+  theme_minimal(base_size = 20)+
+  theme(axis.text.x = element_text(face = "italic"), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+
+
+#combine plots ITS and 16S Shannon
+all_alpha <- ggarrange(Shannon_16S,Shannon_ITS, labels = c('A', 'B'), ncol = 1, nrow = 2, common.legend = TRUE, legend = "bottom")
+all_alpha
+
+
+ggsave("./results/SI_all_alpha_diversity.jpeg", all_alpha)
+
+```
+
+## using Hill numbers
+### 16S
+```{r}
+
+# data 16S
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#endo alpha-div - Hill numbers
+alpha_16S_leaf<-hill_taxa(leaf$reads,q=1)
+leaf$samples$Shannon <- alpha_16S_leaf
+
+#endo alpha-div - Hill numbers
+alpha_16S_root<-hill_taxa(root$reads,q=1)
+root$samples$Shannon <- alpha_16S_root
+
+#shapiro for shannon normality
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.99066, p-value = 0.8902
+# 
+# > shapiro.test(root$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.98149, p-value = 0.461
+
+shannon.anova.leaf<-aov(Shannon ~ name, leaf$samples)
+summary(shannon.anova.leaf) #0.812
+shannon.anova.root<-aov(Shannon ~ name, root$samples)
+summary(shannon.anova.root) #  0.441
+
+alpha_16S_plot_leaf <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+ labs(y= "Alpha diversity / bacteria") +
+  theme_minimal(base_size = 20)+
+    geom_text(aes(x = 3, y = 150, label = "p-value = 0.8"), color = "black", size = 6)+
+  theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+
+alpha_16S_plot_root <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  labs(y= "Alpha diversity / bacteria") +
+  theme_minimal(base_size = 20)+
+   geom_text(aes(x = 3, y = 100, label = "p-value = 0.4"), color = "black", size = 6)+
+  theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+```
+
+
+### ITS
+```{r}
+
+#data ITS
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#endo alpha-div - Hill numbers
+alpha_ITS_leaf<-hill_taxa(leaf$reads,q=1)
+leaf$samples$Shannon <- alpha_ITS_leaf
+
+#endo alpha-div - Hill numbers
+alpha_ITS_root<-hill_taxa(root$reads,q=1)
+root$samples$Shannon <- alpha_ITS_root
+
+shapiro.test(root$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.91648, p-value = 0.0006959
+# 
+shapiro.test(leaf$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.91064, p-value = 9.374e-05
+
+#not normally distributed therefore i use BoxCox tranformation
+library(MASS)
+bc<-boxcox(lm(leaf$samples$Shannon~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((leaf$samples$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(leaf$samples$Shannon^lambda-1)/lambda
+leaf$samples$norm_Shannon <-norm_Shannon 
+
+bc<-boxcox(lm(root$samples$Shannon~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((root$samples$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(root$samples$Shannon^lambda-1)/lambda
+root$samples$norm_Shannon <-norm_Shannon 
+
+shannon.anova.leaf<-aov(norm_Shannon ~ name, leaf$samples)
+summary(shannon.anova.leaf) #0.906 (before normalisation) 0.902 after boxcox
+shannon.anova.root<-aov(norm_Shannon ~ name, root$samples)
+summary(shannon.anova.root) # 0.032 * (before normalisation) 0.0376  after boxcox
+
+#Tukey for roots
+shannon.tukey <- TukeyHSD(shannon.anova.root)
+cld<- multcompView::multcompLetters4(shannon.anova.root, shannon.tukey)
+letters<- as.data.frame.list(cld$name) #comapraison intra organ, inter espèce
+
+
+alpha_ITS_plot_leaf <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  labs(y= "Alpha diversity / fungi ") +
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value = 0.9"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+
+alpha_ITS_plot_root <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  labs(y= "Alpha diversity / fungi") +
+  theme_minimal(base_size = 20)+
+    geom_text(aes(x = 3, y = 100, label = "p-value = 0.03"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_text(face = "bold")) 
+alpha_ITS_plot_root 
+```
+
+plots
+```{r}
+
+#combine plots ITS leaf and root
+alpha_plot <- ggarrange(alpha_ITS_plot_leaf,alpha_ITS_plot_root, alpha_16S_plot_leaf,alpha_16S_plot_root, labels = c('A', 'B', 'C', 'D'), ncol = 2, nrow = 2, common.legend = TRUE, legend = "bottom")
+alpha_plot
+
+ggsave("./results/SI_Hill_alpha_diversity.jpeg", alpha_plot, width = 20, height = 8)
+```
+
+
+
+
+##MFA
+
+code non a jour
+```{r, fig.height = 3, fig.width = 3, fig.align = "center"}
+names(traits)
+
+data <- traits %>% dplyr::select(Name, gmin, LT, LSWC, LA_rwc, SLA, StomatalDensity , RootLength_Total, RootDiameter, SRL) %>% rename(LA= LA_rwc, SD= StomatalDensity, RL = RootLength_Total, RD= RootDiameter) 
+
+res = MFA(data, group=c(1,6,3), type=c("n",rep("s",2)), name.group=c("Identity","Leaf traits","Root traits"), num.group.sup=c(1))
+
+
+fviz_screeplot(res)
+fviz_mfa_var(res, "group")
+
+#data_log: the data set used
+#group: a vector indicating the number of variables in each group
+#type: the type of the variables in each group. "s" for scaled continuous variables, "c" for centered (unscaled) continuous variables and "n" for categorical variables
+#ncp: number of dimensions kept in the result
+#name.group: names of the groups
+#num.group.sup: indexes of the supplementary groups
+
+#red color = active groups of variables
+#green color = supplementary groups of variables
+
+# "#ff80ff" : rose
+# "#E3B02D" : marron
+# "#5bb349" :
+# "#2D91E3" :
+
+# Contribution to the first dimension
+fviz_contrib(res, "group", axes = 1,  color = "#ffffff") + theme_classic()
+# Contribution to the second dimension
+fviz_contrib(res, "group", axes = 2, color = "#ffffff") + theme_classic()
+# Contribution to the third dimension
+fviz_contrib(res, "group", axes = 3, color = "#ffffff") + theme_classic()
+# Contribution to the fourth dimension
+fviz_contrib(res, "group", axes = 4, color = "#ffffff") + theme_classic()
+
+
+quanti.var <- get_mfa_var(res, "quanti.var")
+quanti.var 
+
+var<- fviz_mfa_var(res, "quanti.var", palette = c("#a7c957", "#d4a373"), labelsize = 8,
+                   repel = TRUE) + theme_classic() +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20), title = element_blank(), legend.position = "none")
+var <-var+plot_annotation(title = "A")
+
+var2<- fviz_mfa_var(res, axes= c(3,4), "quanti.var", palette = c("#a7c957", "#d4a373", "#ffba08"), labelsize = 8,
+                    repel = TRUE) + theme_classic() +
+  theme(text = element_text(size = 20),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20), title = element_blank())
+
+# Coordinates
+head(quanti.var$coord)
+# Cos2: quality on the factore map
+head(quanti.var$cos2)
+# Contributions to the dimensions
+head(quanti.var$contrib)
+
+# Contributions to dimension 1
+dim1<-fviz_contrib(res, choice = "quanti.var", axes = 1, top = 20, col.var= "group", color= "white" ) +  scale_fill_manual("Groups", values = c("#dec33c", "#5bb349", "#1e81b0"))
+
+# Contributions to dimension 2
+dim2 <- fviz_contrib(res, choice = "quanti.var", axes = 2, top = 20, col.var= "group", color= "white" ) +  scale_fill_manual("Groups", values = c("#dec33c", "#5bb349", "#1e81b0"))
+
+# Contributions to dimension 3
+dim3 <- fviz_contrib(res, choice = "quanti.var", axes = 3, top = 20, col.var= "group", color= "white" ) +  scale_fill_manual("Groups", values = c("#dec33c", "#5bb349", "#1e81b0"))
+
+# Color by cos2 values: quality on the factor map
+fviz_mfa_var(res, col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+             col.var.sup = "violet", repel = TRUE)
+
+#create a bar plot of variables cos2
+fviz_cos2(res, choice = "quanti.var", axes = 1)
+
+#for individuals
+ind <- get_mfa_ind(res)
+ind
+
+fviz_mfa_ind(res, quali.var="Name", label="non", #remove points labelling
+             palette = "jco",
+             repel = TRUE)
+
+
+
+mfa <- fviz_mfa_ind(res,
+                    geom = c("point", "text"),
+                    habillage = "Name", # color by groups 
+                    palette = c("Paired"), #color blind friendly
+                    addEllipses = TRUE, ellipse.type = "confidence", 
+                    repel = TRUE, # Avoid text overlapping
+                    label="none",
+                    cex.lab=1.5,
+                    labelsize = 20, 
+                    pointsize = 4) + theme_classic() +
+  theme(text = element_text(size = 20),legend.text = element_text(size = 14),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20), title = element_blank(), legend.position = "none")
+mfa <-mfa+plot_annotation(title = "B")
+
+mfa2 <- fviz_mfa_ind(res,axes= c(3,4),
+                     geom = c("point", "text"),
+                     habillage = "Name", # color by groups 
+                     palette = c("Paired"), #color blind friendly
+                     addEllipses = TRUE, ellipse.type = "confidence", 
+                     repel = TRUE, # Avoid text overlapping
+                     label="none",
+                     cex.lab=1.5,
+                     labelsize = 20, 
+                     pointsize = 5) + theme_classic() +
+  theme(text = element_text(size = 20),legend.text = element_text(size = 14),
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 20), title = element_blank())
+
+mfa2
+
+library(patchwork)
+plot_manuscript <-var + mfa
+plot_manuscript 
+
+#ggsave(filename = "MFA_LES_RES_Natura.png", plot = mfa, bg = "white", width = 12, height = 8, dpi = 600)
+
+fviz_ellipses(res, c("Name"), repel = TRUE, invisible = c("ind"))
+
+grp <- as.factor(data$Name)
+
+
+#to remove individuals add : invisible = c("ind","ind.sup")
+
+#ellipses
+#"Character specifying frame type. Possible values are "convex", "confidence" or types supported by stat_ellipse() including one of c("t", "norm", "euclid") for plotting concentration ellipses.
+
+#"convex": plot convex hull of a set o points.
+
+#"confidence": plot confidence ellipses arround group mean points as coord.ellipse()[in FactoMineR].
+
+#"t": assumes a multivariate t-distribution.
+
+#"norm": assumes a multivariate normal distribution.
+
+#"euclid": draws a circle with the radius equal to level, representing the euclidean distance from the center. This ellipse probably won't appear circular unless coord_fixed() is applied.#
+```

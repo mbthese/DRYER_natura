@@ -1,0 +1,1233 @@
+---
+title: "Modeles"
+author: "Marion Boisseaux"
+date: "2023-05-11"
+output: html_document
+---
+Analyses: les traits influence et selectionne les communautés d’endophytes.
+
+# 1- Alpha diversity
+
+1- lm(indices ~ traits racinaires + folaires + location + name.
+
+
+```{r}
+set.seed(123456)
+
+library(tidyverse)
+library(labdsv)
+library(dplyr)
+library(FactoMineR)
+library(car)
+library(missMDA)
+library(metabaR)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(MASS)
+library(cowplot)
+library(nlme)
+library(MuMIn)
+library(multcomp)
+library(ggpubr)
+library(ade4)
+library(hillR)
+library(adespatial)
+library(reldist)
+library(bipartite)
+library(vegan)
+library(scales)
+library(phyloseq)
+library(reshape2)
+library(ggpubr)
+library(kableExtra)
+
+library(BiocManager)
+#BiocManager::install("microbiome")
+library(microbiome)  
+
+# Enable the r-universe repo
+# options(repos = c(
+#     fawda123 = 'https://fawda123.r-universe.dev',
+#     CRAN = 'https://cloud.r-project.org'))
+
+# Install ggord
+#install.packages('ggord')
+library(ggord) #simple package for creating ordination plots with ggplot2. Marcus W. Beck (2017). ggord: Ordination Plots with ggplot2. R package version 1.0.0. https://zenodo.org/badge/latestdoi/35334615
+
+## install.packages('remotes') # if you don't have this installed
+#remotes::install_github('gavinsimpson/ggvegan')
+library('ggvegan')
+
+setwd("E:/Sophie_pipeline/obitools")
+```
+
+## 16S
+
+### Leaf
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+```
+
+
+Test for normality for Y is not met. But It's not the distribution of yi
+ that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
+```{r}
+# #test normality of indices
+# #The null hypothesis is states that the population is normally distributed i.e if the p-value is greater than 0.05, then the null hypothesis is accepted.
+# ggqqplot(natura_clean$samples$Shannon)
+# ggdensity(natura_clean$samples$Shannon)
+# shapiro.test(natura_clean$samples$Shannon) # non normal p-value<0.0001 :  p-value = 1.028e-08
+# #transform Shannon to meet normality
+# bc<-boxcox(natura_clean$samples$Shannon~natura_clean$samples$organ + natura_clean$samples$name)
+# lambda <- bc$x[which.max(bc$y)]
+# #lambda = 2 : si lambda >1 cela amplifie les grandes valeurs de x
+# new_model <- lm(((natura_clean$samples$Shannon^lambda-1)/lambda) ~  natura_clean$samples$organ)
+# qqnorm(new_model$residuals)
+# qqline(new_model$residuals)
+# natura_clean$samples$norm_Shannon<-(natura_clean$samples$Shannon^lambda-1)/lambda
+# shapiro.test(natura_clean$samples$norm_Shannon) 
+# ggqqplot(natura_clean$samples$norm_Shannon)
+# ggdensity(natura_clean$samples$norm_Shannon)
+
+
+```
+
+Traits 
+
+essai code Hogan et al 2022
+
+selection de model
+
+```{r}
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+
+#test normality shannon
+ggqqplot(traits$Shannon)
+ggdensity(traits$Shannon)
+shapiro.test(traits$Shannon) # non normal p-value<0.0001
+#transform Shannon to meet normality
+bc<-boxcox(traits$Shannon~1)
+(lambda <- bc$x[which.max(bc$y)])
+## 2
+new_model <- lm(((traits$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+traits$norm_Shannon<-(traits$Shannon^lambda-1)/lambda
+       
+#traits
+names(traits)
+env <- traits[,c(7,33:36,40:45, 51)] #only leaf traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1,12)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+rest <- env[,c(1,12)] 
+env.scale <- cbind(env.scale, rest)
+
+#check collinearity with VIF on lm (<5)
+names(env.scale)
+env.scale$Name <- as.factor(env.scale$Name)
+lm.leaf.16S <-lm(norm_Shannon~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+Name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
+summary(lm.leaf.16S)
+vif(lm.leaf.16S) #nothing to remove all <5
+
+
+lm.leaf.16S.step<-stepAIC(lm.leaf.16S,direction="both")
+vif(lm.leaf.16S.step) # <10
+summary(lm.leaf.16S.step)
+
+lm.leaf.16S.step$anova
+
+library(jtools) # Load jtools
+library(broom.mixed)
+a<- summ(lm.leaf.16S.step)
+
+RsquareAdj(lm.leaf.16S.step)
+
+table <- data.frame(summ(lm.leaf.16S.step)$coeftable)
+
+write.csv(table, "Shannon_leaf_bacteria.csv")
+
+table %>%
+  kbl(escape = FALSE, digits = 2) %>%
+  row_spec(0, bold = TRUE) %>% 
+  kable_classic(full_width = F, html_font = "Cambria") 
+  #save_kable(file = "Table_Shannon_leaf_bacteria.png", zoom = 5)
+
+```
+
+
+Outliers?
+```{r}
+plot(lm.leaf.16S.step)
+
+#outliers 52 (ef) ,23 (PO),43 (ef),14 (po), 
+env.scale$sample_id <- rownames(env.scale)
+names(env.scale)
+env.scale <- env.scale %>% 
+  filter(env.scale$sample_id != "DRYER_natura_leaf_16S_23_NA") #oui ca suffit apres avoir enleve le 43, 52,44 
+env.scale <- env.scale %>% 
+  filter(env.scale$sample_id != "DRYER_natura_leaf_16S_43_NA") #ne suffit pas
+env.scale <- env.scale %>% 
+  filter(env.scale$sample_id != "DRYER_natura_leaf_16S_52_NA") #ne suffit pas
+env.scale <- env.scale %>% 
+  filter(env.scale$sample_id != "DRYER_natura_leaf_16S_44_NA") #ne suffit pas
+dim(env.scale) # 65 22
+
+
+#on essaye le modèle:
+
+essai<-lm(Shannon~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + LSWC + fvfm + StomatalDensity + SRL + RootDiameter + LT +gmin + MEM1 + MEM2 + MEM3 + MEM4 + name, env.scale)
+summary(essai)
+vif(essai) #rootlength total is 5.7
+env.scale <- env.scale %>% dplyr::select(-RootLength_Total)
+plot(essai)
+shapiro.test(residuals(essai)) 
+
+#without RootLength_total
+essai<-lm(Shannon~ RootShoot + LA_Total + Height + StemDiameter + NbLeaves + LSWC + fvfm + StomatalDensity + SRL + RootDiameter + LT +gmin + MEM1 + MEM2 + MEM3 + MEM4+ name, env.scale)
+
+essai.step<-stepAIC(essai,direction="both")
+sum.leaf <- summary(essai.step)
+plot(essai.step)
+
+ shapiro.test(residuals(essai.step)) 
+# Shapiro-Wilk normality test data:  residuals(essai.step)
+#W = 0.97678, p-value = 0.26
+
+ 
+# #Call:
+# lm(formula = Shannon ~ Height + NbLeaves + LSWC + MEM1, data = env.scale)
+# 
+# Residuals:
+#      Min       1Q   Median       3Q      Max 
+# -0.77205 -0.14062  0.01402  0.17813  0.51103 
+# 
+# Coefficients:
+#             Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)  4.13698    0.03206 129.046  < 2e-16 ***
+# Height      -0.09668    0.03499  -2.763  0.00760 ** 
+# NbLeaves     0.12056    0.03686   3.270  0.00178 ** 
+# LSWC         0.25798    0.03384   7.624 2.15e-10 ***
+# MEM1         0.08116    0.03365   2.412  0.01896 *  
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+# 
+# Residual standard error: 0.2575 on 60 degrees of freedom
+# Multiple R-squared:  0.587,	Adjusted R-squared:  0.5595 
+# F-statistic: 21.32 on 4 and 60 DF,  p-value: 5.604e-11
+ 
+table.16S.leaf <- sum.leaf$coefficients %>%
+  kbl(caption = "Traits that shape bacteria endophytes in leaf", escape = FALSE, digits = 3) %>%
+  row_spec(0, bold = TRUE) %>% 
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  add_footnote("Adjusted R-squared: 0.56", notation = "none") %>%
+  add_footnote("F-statistic: 21.3 on 4 and 60 DF, p-value: 5.604e-11", notation = "none") %>%
+  save_kable(file = "./results/model/sumleaf16S.png", zoom = 2)
+```
+
+### Root
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+
+Test for normality for Y is not met. But It's not the distribution of yi
+ that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
+
+Traits 
+
+```{r}
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(root$samples, traits_norm)
+
+#test normality shannon
+ggqqplot(traits$Shannon)
+ggdensity(traits$Shannon)
+shapiro.test(traits$Shannon) # non normal p-value<0.0001
+#transform Shannon to meet normality
+bc<-boxcox(traits$Shannon~1)
+(lambda <- bc$x[which.max(bc$y)])
+## 2
+new_model <- lm(((traits$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+traits$norm_Shannon<-(traits$Shannon^lambda-1)/lambda
+       
+#traits
+names(traits)
+env <- traits[,c(12, 66:68,39:42, 71)] #only root traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1,9)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+rest <- env[,c(1,9)] 
+env.scale <- cbind(env.scale, rest)
+#check collinearity with VIF on lm (<5)
+names(env.scale)
+lm.root.16S <-lm(norm_Shannon~  name + norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
+summary(lm.root.16S)
+vif(lm.root.16S) #nothing to remove all <5
+
+
+lm.root.16S.step<-stepAIC(lm.root.16S,direction="both")
+vif(lm.root.16S.step) # <10
+summary(lm.root.16S.step)
+#plot(lm.root.16S.step) 
+
+a<- summ(lm.root.16S.step)
+
+RsquareAdj(lm.root.16S.step)
+
+table <- data.frame(summ(lm.root.16S.step)$coeftable)
+
+write.csv(table, "Shannon_root_bacteria.csv")
+
+table %>%
+  kbl(escape = FALSE, digits = 2) %>%
+  row_spec(0, bold = TRUE) %>% 
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  save_kable(file = "Table_Shannon_root_bacteria.png", zoom = 5)
+
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+#old script 
+plot(lm.root.16S.step)
+ shapiro.test(residuals(lm.root.16S.step)) #not normal
+
+#outliers 19,1,9 , 60, 6
+env.scale$sample_id <- rownames(env.scale)
+names(env.scale)
+env.scale <- env.scale %>% 
+  filter(env.scale$sample_id != "DRYER_natura_root_16S_1_NA") #?
+
+dim(env.scale) #62 22
+
+
+#on essaye le modèle:
+
+essai<-lm(Shannon~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + LSWC + fvfm + StomatalDensity + SRL + RootDiameter + LT +gmin + MEM1 + MEM2 + MEM3 + MEM4 +name, env.scale)
+summary(essai)
+vif(essai) #nothing above 5
+plot(essai)
+shapiro.test(residuals(essai)) 
+
+essai.step<-stepAIC(essai,direction="both")
+sum.root <- summary(essai.step)
+plot(essai.step)
+
+shapiro.test(residuals(essai.step))
+ 
+# Shapiro-Wilk normality test
+# data:  residuals(essai.step)
+# W = 0.96202, p-value = 0.0524
+
+table.16S.root <- sum.root$coefficients %>%
+  kbl(caption = "Traits that shape bacteria endophytes in roots", escape = FALSE, digits = 3) %>%
+  row_spec(0, bold = TRUE) %>% 
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  add_footnote("Adjusted R-squared: 0.47", notation = "none") %>%
+  add_footnote(" F-statistic: 7.05 on 9 and 52 DF, p-value: 1.388e-06", notation = "none") %>%
+  save_kable(file = "./results/model/sumroot16S.png", zoom = 2)
+
+# Call:
+# lm(formula = Shannon ~ RootShoot + RootLength_Total + Height + 
+#     StemDiameter + NbLeaves + RootDiameter + MEM1 + MEM2 + MEM3, 
+#     data = env.scale)
+# 
+# Residuals:
+#      Min       1Q   Median       3Q      Max 
+# -0.74821 -0.08234  0.01743  0.16898  0.56069 
+# 
+# Coefficients:
+#                  Estimate Std. Error t value Pr(>|t|)    
+# (Intercept)       4.06947    0.03596 113.162  < 2e-16 ***
+# RootShoot         0.16314    0.05301   3.077  0.00333 ** 
+# RootLength_Total -0.09949    0.05332  -1.866  0.06771 .  
+# Height            0.11242    0.04851   2.317  0.02446 *  
+# StemDiameter      0.07540    0.05325   1.416  0.16273    
+# NbLeaves          0.07417    0.05201   1.426  0.15984    
+# RootDiameter     -0.19548    0.05526  -3.537  0.00086 ***
+# MEM1              0.22227    0.04063   5.470 1.30e-06 ***
+# MEM2             -0.16392    0.03821  -4.290 7.78e-05 ***
+# MEM3             -0.08882    0.03964  -2.241  0.02935 *  
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+# 
+# Residual standard error: 0.2826 on 52 degrees of freedom
+# Multiple R-squared:  0.5496,	Adjusted R-squared:  0.4717 
+# F-statistic: 7.051 on 9 and 52 DF,  p-value: 1.388e-06
+
+```
+
+## ITS 
+
+### Leaf
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+```
+
+
+Test for normality for Y is not met. But It's not the distribution of yi
+ that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
+
+Traits 
+
+```{r}
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+
+#test normality shannon
+ggqqplot(traits$Shannon)
+ggdensity(traits$Shannon)
+shapiro.test(traits$Shannon) # non normal p-value<0.0001
+#transform Shannon to meet normality
+bc<-boxcox(traits$Shannon~1)
+(lambda <- bc$x[which.max(bc$y)])
+## 2
+new_model <- lm(((traits$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+traits$norm_Shannon<-(traits$Shannon^lambda-1)/lambda
+       
+#traits
+names(traits)
+env <- traits[,c(7,40:45,33:36, 51)] #only leaf traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1,12)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+rest <- env[,c(1,12)] 
+env.scale <- cbind(env.scale, rest)
+#check collinearity with VIF on lm (<5)
+names(env.scale)
+lm.leaf.ITS <-lm(norm_Shannon~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+Name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
+summary(lm.leaf.ITS)
+vif(lm.leaf.ITS) #nothing to remove all <5
+
+
+lm.leaf.ITS.step<-stepAIC(lm.leaf.ITS,direction="both")
+vif(lm.leaf.ITS.step) # <10
+summary(lm.leaf.ITS.step)
+
+#table 
+c<- summ(lm.leaf.ITS.step)
+
+RsquareAdj(lm.leaf.ITS.step)
+
+table <- data.frame(summ(lm.leaf.ITS.step)$coeftable)
+
+write.csv(table, "Shannon_leaf_fungi.csv")
+```
+
+### Root
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+
+Test for normality for Y is not met. But It's not the distribution of yi
+ that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
+
+Traits 
+
+```{r}
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(root$samples %>% dplyr::select(code, Shannon), traits_norm)
+
+#test normality shannon
+ggqqplot(traits$Shannon)
+ggdensity(traits$Shannon)
+shapiro.test(traits$Shannon) # normal p-value = 0.3587
+
+#traits
+names(traits)
+env <- traits[,c(7,46:48,33:36, 2)] #only leaf traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1,9)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+rest <- env[,c(1,9)] 
+env.scale <- cbind(env.scale, rest)
+       
+#check collinearity with VIF on lm (<5)
+names(env.scale)
+lm.root.ITS <-lm(Shannon~ norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
+summary(lm.root.ITS)
+vif(lm.root.ITS) #nothing to remove all <5
+
+
+lm.root.ITS.step<-stepAIC(lm.root.ITS,direction="both")
+vif(lm.root.ITS.step) # <5
+sum.root.its <- summary(lm.root.ITS.step)
+
+#yes!!! 
+
+plot(lm.root.ITS.step)
+ shapiro.test(residuals(lm.root.ITS.step)) #Shapiro-Wilk normality test
+# 
+#data:  residuals(lm.root.ITS.step)
+#W = 0.98207, p-value = 0.5451
+#table 
+d<- summ(lm.root.ITS.step)
+
+RsquareAdj(lm.root.ITS.step)
+
+table <- data.frame(summ(lm.root.ITS.step)$coeftable)
+
+write.csv(table, "Shannon_root_fungi.csv")
+```
+
+
+# 2- Beta diversity
+
+## 16S
+
+### Leaf
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+```
+
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+#traits
+       
+#traits
+names(traits)
+env <- traits[,c(7,33:36,40:45)] #only leaf traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+name <- env[,c(1)] 
+env.scale <- cbind(env.scale, name)
+
+
+#dbRDA
+beta.leaf.16S <-dbrda(dis.hell.bray ~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+name+ MEM1 + MEM2+MEM3+MEM4,env.scale)
+beta.leaf.16S
+
+anova(beta.leaf.16S) #p = 0.345
+set.seed(123) ; a <- anova(beta.leaf.16S, by="terms")
+RsquareAdj(beta.leaf.16S)
+write.csv(a, "dbRDA_leaf_bacteria.csv")
+
+# by = "terms" will assess significance for each term (sequentially from first to last), and setting by = "margin" will assess the marginal effects of the terms (each marginal term analysed in a model with all other variables), 
+
+anova(beta.leaf.16S, by="margin")
+vif.cca(beta.leaf.16S) #all <5
+RsquareAdj(beta.leaf.16S)  #0.005243926
+
+####################"
+
+
+#test with ordi2step
+null_model <- dbrda(dis.hell.bray ~ 1, data = env.scale) 
+model_all_traits <- dbrda (dis.hell.bray ~  norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+name+ MEM1 + MEM2+MEM3+MEM4, data = env.scale) #peut-être on enleve LSWC?
+
+#check collinearity with VIF.cca (<5)
+vif.cca(model_all_traits) 
+model_ordi2 <- ordiR2step(null_model, scope = formula(model_all_traits), direction = c("both"))
+model_ordi2
+vif.cca(model_ordi2)
+model_ordi2$anova 
+
+
+```
+
+Permutation test for dbrda under reduced model
+Terms added sequentially (first to last)
+Permutation: free
+Number of permutations: 999
+
+Model: dbrda(formula = dis.hell.bray ~ norm_LSWC + norm_StomatalDensity + norm_LT + norm_gmin + norm_SLA + norm_TotalLeafArea + name + MEM1 + MEM2 + MEM3 + MEM4, data = env.scale)
+                     Df SumOfSqs      F Pr(>F)
+norm_LSWC             1   0.1558 1.1503  0.223
+norm_StomatalDensity  1   0.1562 1.1529  0.219
+norm_LT               1   0.1599 1.1806  0.196
+norm_gmin             1   0.1511 1.1156  0.277
+norm_SLA              1   0.1192 0.8800  0.611
+norm_TotalLeafArea    1   0.1071 0.7907  0.812
+name                  6   0.8648 1.0641  0.274
+MEM1                  1   0.1183 0.8734  0.623
+MEM2                  1   0.1243 0.9180  0.564
+MEM3                  1   0.1601 1.1820  0.213
+MEM4                  1   0.1115 0.8236  0.729
+Residual             52   7.0430     
+```{r}
+library(ggplot2)
+
+# Create a data frame for plotting
+rsquare_df_leaf <- data.frame(Trait = c("", "", ""), Adj.R.squared = c("", "", ""))
+
+# Plot the estimates using ggplot2
+Leaf_bacteria <- ggplot(rsquare_df_leaf, aes(x = Trait, y = Adj.R.squared)) +
+  labs(x = "", y = "Adjusted R square") +
+  ggtitle("Leaf Bacteria")+
+  theme_classic(base_size = 30) +
+  coord_flip()
+```
+
+
+### Root
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(root$samples %>% dplyr::select(code), traits_norm)
+
+#traits
+names(traits)
+env <- traits[,c(6, 32:35,45:47)] #only root traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+name <- env[,c(1)] 
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#correlation between root traits
+#corr <-cor(env.scale[,-c(8)],method="spearman")
+#p.mat=cor.mtest(env.scale[,-c(8)],conf.level=0.95)
+#corrplot(corr) #nbrootlets, TLP and MAjVLA have NAs
+
+#dbRDA
+beta.root.16S <-dbrda(dis.hell.bray ~ norm_SRL+ norm_RootDiameter+ norm_RootTissueDensity + MEM1+MEM2+MEM3+MEM4+name,env.scale)
+# test if significant
+set.seed(123); b <- anova(beta.root.16S, by= "terms") #p =0.001 *** !!! :)
+#c'est significatif.
+set.seed(123);  anova(beta.root.16S) 
+write.csv(b, "dbRDA_root_bacteria.csv")
+RsquareAdj(beta.root.16S) #0.1828967 
+ 
+
+vif.cca(beta.root.16S) #all <5
+
+#test with ordi2step
+
+null_model <- dbrda(dis.hell.bray ~ 1 , data = env.scale) 
+model_all_traits <- dbrda (dis.hell.bray ~ norm_SRL+ norm_RootDiameter+ norm_RootTissueDensity + MEM1+MEM2+MEM3+MEM4+name, data = env.scale) # model including all variables from matrix 
+
+#check collinearity with VIF.cca (<5)
+vif.cca(model_all_traits) 
+model_ordi2 <- ordiR2step(null_model, scope = formula(model_all_traits), direction = c("forward"))
+model_ordi2$anova
+RsquareAdj(model_ordi2) #0.1781785
+
+```
+
+Plot
+
+```{r}
+library(ggplot2)
+
+# Extract the estimates from the most parsimonious model
+rsquare <- model_ordi2$anova
+
+# Create a data frame for plotting
+rsquare_df <- data.frame(Trait = row.names(rsquare), Adj.R.squared = rsquare[, 1])
+
+rsquare_df$traits <- c( "Host species",  "MEM2","MEM1", "All variables")
+
+# Plot the estimates using ggplot2
+root_bacteria <- ggplot(rsquare_df, aes(x = traits, y = Adj.R.squared)) +
+  geom_point(stat = "identity", fill = "steelblue", size =5) +  # Increase point size to 3
+  geom_segment(aes(x = traits, xend = traits, y = 0, yend = Adj.R.squared), color = "black") +  # Add black lines
+  labs(x = "", y = "Adjusted R square") +
+  ggtitle("Root Bacteria")+
+  theme_classic(base_size = 30) +
+  coord_flip()
+
+```
+
+
+## ITS
+
+### Leaf
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+```
+
+
+```{r}
+dis.hell.bray <- vegdist(decostand(leaf$reads, method = "hellinger"),
+    method = "bray") 
+
+#traits
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+names(traits)
+env <- traits[,c(7,33:36,40:45)] #only leaf traits
+names(env)
+env.scale <- scale(env[,-c(1)], center = TRUE, scale = TRUE)
+env.scale <-as.data.frame(env.scale)
+name <- env[,c(1)] 
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+
+#dbRDA
+beta.leaf.ITS <-dbrda(dis.hell.bray ~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
+set.seed(123); anova(beta.leaf.ITS) #0.008**
+set.seed(123); c<- anova(beta.leaf.ITS, by= "terms")
+RsquareAdj(beta.leaf.ITS)
+write.csv(c, "dbRDA_leaf_fungi.csv")
+
+vif.cca(beta.leaf.ITS)
+
+#test with ordi2step
+null_model <- dbrda(dis.hell.bray ~ 1 , data = env.scale) 
+model_all_traits <- dbrda (dis.hell.bray ~  norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+name+ MEM1 + MEM2+MEM3+MEM4, data = env.scale) # model including all variables from matrix 
+
+#check collinearity with VIF.cca (<5)
+vif.cca(model_all_traits) 
+model_ordi2 <- ordiR2step (null_model, scope = formula (model_all_traits), direction = c("both"))
+model_ordi2
+vif.cca(model_ordi2)
+model_ordi2$anova 
+
+model_retenu <- dbrda (dis.hell.bray ~ norm_gmin+name + MEM2, data = env.scale) 
+anova(model_retenu, by = "terms")
+RsquareAdj(model_retenu)
+```
+
+
+
+
+### Root
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+
+```{r}
+# calculate Bray-Curtis distance using the vegan package
+#Microbiota data are sparse and specific distances, such as Bray-Curtis, Jaccard or weight/unweight Unifrac distances, better deal with the problem of the presence of many double zeros in data sets.
+
+dis.hell.bray <- vegdist(decostand(root$reads, method = "hellinger"),
+    method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
+
+#traits normalized
+traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits_norm$code <- as.character(traits_norm$code)
+traits <- left_join(root$samples %>% dplyr::select(code), traits_norm)
+
+#traits
+names(traits)
+env <- traits[,c(6, 32:35,45:47)] #only root traits
+# Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
+names(env)
+env.scale <- scale(env[,-c(1)], center = TRUE, scale = TRUE) #scale traits not the indices
+env.scale <-as.data.frame(env.scale)
+name <- env[,c(1)] 
+env.scale <- cbind(env.scale, name)
+names(env.scale)
+#dbRDA
+beta.root.ITS <-dbrda(dis.hell.bray ~ norm_SRL+ norm_RootDiameter+ norm_RootTissueDensity + MEM1+MEM2+MEM3+MEM4+name,env.scale)
+set.seed(123); anova(beta.root.ITS) # 0.131 overall
+set.seed(123); d<- anova(beta.root.ITS, by = "terms") 
+write.csv(d, "dbRDA_root_fungi.csv")
+vif.cca(beta.root.ITS) #all <5
+RsquareAdj(beta.root.ITS)
+#name en condition
+
+#test with ordi2step
+
+null_model <- dbrda(dis.hell.bray ~ 1, data = env.scale) 
+model_all_traits <- dbrda (dis.hell.bray ~norm_SRL+ norm_RootDiameter+ norm_RootTissueDensity + MEM1+MEM2+MEM3+MEM4+name, data = env.scale) # model including all variables from matrix 
+
+#check collinearity with VIF.cca (<5)
+vif.cca(model_all_traits) 
+ model_ordi2 <- ordiR2step (null_model, scope = formula (model_all_traits), direction = c("both"))
+
+model_ordi2
+
+vif.cca(model_ordi2)
+model_ordi2$anova 
+```
+
+```{r}
+library(ggplot2)
+
+# Create a data frame for plotting
+rsquare_df_root_ITS <- data.frame(Trait = c("", "", ""), Adj.R.squared = c("", "", ""))
+
+# Plot the estimates using ggplot2
+root_fungi <-ggplot(rsquare_df_root_ITS, aes(x = Trait, y = Adj.R.squared)) +
+  labs(x = "", y = "Adjusted R square") +
+  ggtitle("Root Fungi")+
+  theme_classic(base_size = 30) +
+  coord_flip()
+```
+
+
+```{r}
+library(patchwork)
+
+leaf_fungi + Leaf_bacteria + root_fungi + root_bacteria
+```
+
+
+##CCA
+
+unimodel regression
+
+To avoid that the variation explained be strongly overestimated if nonsignificant variables are included, we used of a forward selection to maintain significant variables only (as stated by 0kland & Eilertsen (1994))
+
+```{r}
+  load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# Calculate relative abundances 
+microbio <- vegan::decostand(leaf$reads, method = "hellinger")
+
+
+# Get trait variables that act as environmental variables that would shape the microbial dataset
+names(leaf$samples)
+env <- leaf$samples[,c(20:25, 29:40)] #here without name
+name <-leaf$samples[,c(1,12)]
+
+# Prior to constructing the model, leaf functional trait variables were mean-centered and scaled to unit variance.
+
+env.scale <- scale(env, center = TRUE, scale = TRUE) #scale or not it does not change the cca output and inertia explained
+env.scale <- as.data.frame(env.scale)
+env.scale <- cbind(env.scale, name ) %>% dplyr::select(-sample_id)
+
+names(env.scale)
+#env$name <- as.character(env$name)
+
+#perform CCA analysis on relative abundances 
+leaf.ITS.cca <- cca(microbio ~  RootLength_Total + LA_Total + NbLeaves + LSWC + fvfm + StomatalDensity + SRL + RootDiameter + LT + gmin + MEM1 + MEM2 + MEM3 + MEM4 + Condition(name) , data= env.scale)
+leaf.ITS.cca
+
+#summary with name
+
+```
+Call: cca(formula = microbio ~ RootShoot + RootLength_Total + LA_Total +
+Height + StemDiameter + NbLeaves + LA + LSWC + fvfm + StomatalDensity +
+SRL + RootDiameter + LT + gmin + MEM1 + MEM2 + MEM3 + MEM4, data = env)
+
+              Inertia Proportion Rank
+Total         11.4017     1.0000     
+Constrained    2.9937     0.2626   18
+Unconstrained  8.4080     0.7374   52
+Inertia is scaled Chi-square 
+
+Eigenvalues for constrained axes:
+   CCA1    CCA2    CCA3    CCA4    CCA5    CCA6    CCA7    CCA8    CCA9   CCA10 
+0.23769 0.21597 0.20277 0.19909 0.18200 0.17645 0.17138 0.16654 0.16320 0.16056 
+  CCA11   CCA12   CCA13   CCA14   CCA15   CCA16   CCA17   CCA18 
+0.15524 0.15029 0.14668 0.14100 0.13829 0.13290 0.13044 0.12318 
+
+Eigenvalues for unconstrained axes:
+    CA1     CA2     CA3     CA4     CA5     CA6     CA7     CA8 
+0.31243 0.29627 0.25188 0.24800 0.24432 0.22441 0.21905 0.21495 
+(Showing 8 of 52 unconstrained eigenvalues)
+
+Eigenvalues for unconstrained axes:
+    CA1     CA2     CA3     CA4     CA5     CA6     CA7     CA8 
+0.29979 0.28961 0.23906 0.23296 0.22857 0.22189 0.21171 0.20070 
+(Showing 8 of 46 unconstrained eigenvalues)
+
+
+Results show that the total inertia is *11.4017* and the proportion of the total variance explained by the traits is 35 %. 64% remains unexplained. There is still structure in the eigenvalues for unconstrained axes because the CA1+CA2 has a larger eigenvalues than the axes of the constrained CA. Eventhough we have 24 env't variables, we still aren't able to determine all the structure of the data.
+
+```{r echo=TRUE,eval=FALSE}
+summary(leaf.ITS.cca)
+scores(leaf.ITS.cca, display = "bp")
+```
+
+                    CCA1        CCA2
+RootShoot         0.19810034 -0.31061185
+RootLength_Total  0.05429545 -0.19309936
+LA_Total          0.13485520 -0.08910994
+Height           -0.67897850 -0.24253191
+StemDiameter     -0.06191947 -0.08884127
+NbLeaves          0.34971811  0.04267613
+LA               -0.18900654 -0.04009538
+LSWC             -0.16097271  0.52391981
+fvfm             -0.33314600  0.03155613
+StomatalDensity   0.24516780  0.11257345
+SRL              -0.05585892  0.22875708
+RootDiameter     -0.20954082  0.21179659
+LT               -0.18461388 -0.20554385
+gmin              0.04326790  0.05539671
+MEM1              0.35946036  0.50455734
+MEM2             -0.14049755  0.19657435
+MEM3             -0.31338091 -0.05435984
+MEM4             -0.07997608  0.14850583
+
+
+
+Variables that are important on CCA axes 1 and on CCA axis 2 are Height, NbLeaves, fvfm, Rootdiameter MEM1+3 (Axe1) and LSWC, MEM1, RootShoot , SRL (Axe 2). Root traits also shape the leaf bacterial microbiota. 
+
+```{r}
+plot(leaf.16S.cca) #tripod
+```
+
+Unconstrained
+```{r}
+leaf.ITS.ca <- cca(microbio)
+leaf.ITS.ca
+
+layout(matrix(1:2, ncol =2))
+plot(leaf.ITS.ca)
+plot(leaf.ITS.cca)
+
+#we reduced the impact of the rare taxa and the archi-type artefact. outliers are less extremes because we constrained them by the env'tal variables.
+```
+
+Scaling effect
+```{r echo=TRUE,eval=TRUE}
+
+layout(matrix(1:2, ncol =2))
+plot(leaf.ITS.cca, scaling = "species") #here we focus on the species (microbial dataset) weighted by the site' score (seedling's ID).
+plot(leaf.ITS.cca, scaling = "site")#here we focus on the sites (our seedlings' identity) weighted by the species' score (microbial data).
+```
+
+Look for redundant trait variables that are highly correlated with each other. 
+
+```{r echo=TRUE,eval=FALSE}
+#correlation matrix of the traits
+cor(env)
+
+#calculate the variance inflation factors for each variable. Drop if more than 10.
+vif.cca(leaf.ITS.cca)
+```
+
+
+  *RootShoot Root*     *Length_Total*    *LA_Total*         *Height*
+        2.918881         3.982096         2.738036         2.713694 
+   
+    StemDiameter         NbLeaves               LA             LSWC 
+        3.373245         3.805558         2.487781         2.134804 
+           
+            fvfm  StomatalDensity              SRL     RootDiameter 
+        1.533166         1.415891         3.207631         2.747522 
+            
+              LT             gmin             MEM1             MEM2 
+        2.859041         1.722390         1.849315         1.871105 
+            
+            MEM3             MEM4 
+        2.050128         1.174379 
+
+Traits that might be redundant and therefore dropped from the CCA model :  here none
+
+Check the significance of the full CCA model we have using the `anova()` function
+```{r echo=TRUE,eval=FALSE}
+set.seed(123) #uses random permutations so we set a seed.
+anova(leaf.ITS.cca) 
+#anova(leaf.ITS.cca, by = "margin") #see per predictors but does not work, too long
+```
+
+*anova1*
+Permutation test for cca under reduced model
+Permutation: free
+Number of permutations: 999
+
+Model: cca(formula = microbio ~ RootShoot + RootLength_Total + LA_Total + Height + StemDiameter + NbLeaves + LA + LSWC + fvfm + StomatalDensity + SRL + RootDiameter + LT + gmin + MEM1 + MEM2 + MEM3 + MEM4, data = env)
+         Df ChiSquare      F Pr(>F)
+Model    18    2.9937 1.0286  0.103
+Residual 52    8.4080 
+
+*anova2*
+
+
+
+
+Fowards selection and backwards elimination
+```{r}
+null_model <- cca(microbio ~1 , data = env) #null model which is a CA (unconstrained)
+
+model <- step(object = leaf.ITS.cca, scope = list(lower = formula(null_model), upper = formula(leaf.ITS.cca)), test = "perm", trace = FALSE) #takes a long time like 5 min
+
+model$anova #print out the record of the steps
+
+# #  Step Df  Deviance Resid. Df Resid. Dev      AIC
+# 1                     NA        NA        50   8818.968 384.3606
+# 2   - Condition(name)  6 1116.7018        56   9935.670 380.8257
+# 3                - LT  1  160.0589        57  10095.729 379.9603
+# 4              - fvfm  1  162.2075        58  10257.936 379.0920
+# 5              - MEM4  1  165.6357        59  10423.572 378.2293
+# 6   - StomatalDensity  1  175.1520        60  10598.724 377.4124
+# 7          - LA_Total  1  177.2223        61  10775.946 376.5898
+# 8  - RootLength_Total  1  168.3415        62  10944.288 375.6904
+# 9              - gmin  1  182.4913        63  11126.779 374.8645
+# 10     - RootDiameter  1  184.0102        64  11310.789 374.0291
+# 11             - MEM3  1  183.2693        65  11494.058 373.1703
+# 12              - SRL  1  187.0000        66  11681.058 372.3161
+# 13         - NbLeaves  1  190.6539        67  11871.712 371.4656
+# 14             - LSWC  1  196.6098        68  12068.322 370.6318
+# 15             - MEM2  1  197.6321        69  12265.954 369.7851
+# 16             - MEM1  1  203.7664        70  12469.721 368.9549
+#                  
+
+
+
+model  #to view the final model
+# 
+# Call: cca(formula = microbio ~ 1, data = env.scale)
+# 
+#               Inertia Rank
+# Total            11.4     
+# Unconstrained    11.4   70
+# Inertia is scaled Chi-square 
+# 
+# Eigenvalues for unconstrained axes:
+#    CA1    CA2    CA3    CA4    CA5    CA6    CA7    CA8 
+# 0.3440 0.3371 0.2968 0.2763 0.2617 0.2576 0.2543 0.2411 
+# (Showing 8 of 70 unconstrained eigenvalues)
+
+set.seed(123)
+anova(model) #to test the model and see how significant the effects of the constraints are.
+summary(model) 
+```
+
+*Is it different from the full model?* it is the null model haha
+
+```{r}
+plot(model)
+```
+
+Step-wise selection using Adjusted $R^2$
+
+*include the adjusted $R^2$ in our evaluations* of the models using the function `ordiR2step()` where we add a variable if it significantly improves the model, and we also compare against the $R^2_{\text{adjusted}}$ of the model at the upper scope.
+
+```{r ordir2step-cca-delete}
+mod.r2step <- ordiR2step(null_model, scope = formula(leaf.ITS.cca))
+mod.r2step
+mod.r2step$anova
+
+#                    R2.adj Df    AIC      F Pr(>F)   
+# + Height        0.0033347  1 369.69 1.2362  0.004 **
+# + MEM1          0.0055700  1 370.51 1.1485  0.006 **
+# + MEM2          0.0072316  1 371.33 1.1165  0.040 * 
+# <All variables> 0.0077451                           
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+anova(mod.r2step, by = "margin") 
+
+# Permutation test for cca under reduced model
+# Marginal effects of terms
+# Permutation: free
+# Number of permutations: 999
+# 
+# Model: cca(formula = microbio ~ Height + MEM1 + MEM2, data = env)
+#          Df ChiSquare      F Pr(>F)   
+# Height    1    0.2002 1.2383  0.003 **
+# MEM1      1    0.1865 1.1531  0.005 **
+# MEM2      1    0.1806 1.1165  0.021 * 
+# Residual 67   10.8344                 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+```
+
+> mod.r2step <- ordiR2step(null_model, scope = formula(leaf.ITS.cca))
+Step: R2.adj= 0 
+Call: microbio ~ 1 
+ 
+                     R2.adjusted
+<All variables>     7.745145e-03
++ Height            3.350142e-03
++ MEM1              2.100289e-03
++ LSWC              1.661634e-03
++ MEM2              1.568822e-03
++ RootShoot         7.471936e-04
++ NbLeaves          7.327939e-04
++ MEM3              1.480651e-04
++ LT                8.276197e-05
++ RootDiameter      3.177603e-05
+<none>              0.000000e+00
++ StomatalDensity  -2.230192e-05
++ gmin             -3.419519e-05
++ SRL              -2.041374e-04
++ LA               -4.712418e-04
++ fvfm             -6.218955e-04
++ MEM4             -9.721277e-04
++ RootLength_Total -1.077999e-03
++ StemDiameter     -1.108270e-03
++ LA_Total         -1.112264e-03
+
+         Df    AIC      F Pr(>F)   
++ Height  1 369.69 1.2362  0.004 **
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Step: R2.adj= 0.003334742 
+Call: microbio ~ Height 
+ 
+                   R2.adjusted
+<All variables>    0.007745145
++ MEM1             0.005489355
++ MEM2             0.005031716
++ LSWC             0.004967736
++ RootShoot        0.004072895
++ gmin             0.003471683
+<none>             0.003334742
++ RootDiameter     0.003310795
++ LT               0.003200418
++ SRL              0.003199173
++ StomatalDensity  0.003188977
++ RootLength_Total 0.003135738
++ LA               0.003106868
++ NbLeaves         0.002959913
++ LA_Total         0.002888060
++ StemDiameter     0.002815297
++ MEM3             0.002724582
++ MEM4             0.002310759
++ fvfm             0.002230720
+
+       Df    AIC      F Pr(>F)   
++ MEM1  1 370.51 1.1485  0.006 **
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Step: R2.adj= 0.005569966 
+Call: microbio ~ Height + MEM1 
+ 
+                   R2.adjusted
+<All variables>    0.007745145
++ MEM2             0.007234292
++ LSWC             0.006779065
++ RootShoot        0.006435670
++ RootDiameter     0.005778510
++ SRL              0.005572297
+<none>             0.005569966
++ gmin             0.005439281
++ NbLeaves         0.005390449
++ StemDiameter     0.005264869
++ RootLength_Total 0.005253654
++ LA               0.005225007
++ StomatalDensity  0.005208903
++ LT               0.005063860
++ LA_Total         0.004918550
++ MEM3             0.004865971
++ fvfm             0.004596395
++ MEM4             0.004419228
+
+       Df    AIC      F Pr(>F)  
++ MEM2  1 371.33 1.1165   0.04 *
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Step: R2.adj= 0.007231558 
+Call: microbio ~ Height + MEM1 + MEM2 
+ 
+                   R2.adjusted
++ LSWC             0.008760375
++ RootShoot        0.008558905
+<All variables>    0.007745145
++ SRL              0.007463285
++ RootDiameter     0.007365932
+<none>             0.007231558
++ LA               0.007051871
++ RootLength_Total 0.006956556
++ NbLeaves         0.006918791
++ gmin             0.006881535
++ StemDiameter     0.006818137
++ StomatalDensity  0.006782218
++ LA_Total         0.006776218
++ fvfm             0.006654538
++ MEM3             0.006606043
++ LT               0.006603840
++ MEM4             0.006247071
+
+> mod.r2step
+Call: cca(formula = microbio ~ Height + MEM1 + MEM2, data = env)
+
+               Inertia Proportion Rank
+Total         11.40169    1.00000     
+Constrained    0.56726    0.04975    3
+Unconstrained 10.83443    0.95025   67
+Inertia is scaled Chi-square 
+
+Eigenvalues for constrained axes:
+   CCA1    CCA2    CCA3 
+0.21776 0.18266 0.16683 
+
+Eigenvalues for unconstrained axes:
+   CA1    CA2    CA3    CA4    CA5    CA6    CA7    CA8 
+0.3336 0.3274 0.2899 0.2677 0.2568 0.2551 0.2474 0.2382 
+(Showing 8 of 67 unconstrained eigenvalues)
+
+
+With condition - **Partial CCA model**
+we want to fit a model to our microbial data after controlling for the effects of the seedlings' identity. The effect of the seedlings' identity is partialled out, and a CCA model is applied to explain the residual variation. Partial models can also be used to evaluate the significance of adding a new variable to a model already containing one or more variables&mdash;partial out the existing variables and fit a model with the new variable of interest, using `anova()` to assess the effect of adding this new variable.
+```{r}
+partial.model <- cca(microbio ~ RootShoot + RootLength_Total+ LA_Total+ Height + StemDiameter + NbLeaves + LA + fvfm + StomatalDensity +  SRL + RootDiameter + LSWC + LT + gmin + MEM1 + MEM2 + MEM3 + MEM4 + Condition(name), data = env) #here we are looking a bit at variacne aprtitioning and how much variation is due to the seedlings' ID compared to the traits.
+partial.model
+anova(partial.model)
+plot(partial.model)
+```
+
+

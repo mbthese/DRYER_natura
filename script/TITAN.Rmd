@@ -1,0 +1,200 @@
+---
+title: "TITAN"
+author: "Marion Boisseaux"
+date: "2023-05-10"
+output: html_document
+---
+Titan analyses based on Cambon et al 2022
+
+
+The TITAN2 analysis was performed on the same dataset as CCA, representing the traits and fungal/bacteria communities of 72 seedlings belonging to 7 species.
+
+Microorganisms associated with traits were searched within the set of fungal/bacterial OTUs having more than *100* reads in total and present in at least three samples, as required by TITAN2.
+
+Variations in trait values due to phylogenetic signals were removed before TITAN2 analysis by applying a phylogenetic correction to each trait, performed with the phylo.correction function of the phyloint package v0.1 (Eklöf and Stouffer 2016).
+
+The TITAN2 analysis allowed us to quantify, for each OTU and each trait, the change in OTU relative abundance related to the phylogenetically corrected value of each trait. The intensity and the direction of the relationship between each trait and the relative abundance of each ASV were represented by a z-score.
+
+OTUs whose relative abundance covaried with the phylogenetically corrected value of at least one trait, with the same direction, in 95% of 500 bootstraps of the dataset were considered as significantly
+associated withthe traits and were selected for subsequent analysis.
+
+Finally, to confirm the influence of the TITAN2-selected OTUs on the traits, we replaced the PCNM eigenvectors representing community β-diversity with the relative abundance of the selected OTUs in the final RDA model and again performed a partition of variance.
+
+```{r}
+
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+
+TITcom <- natura_clean$reads # get my 16s community
+TITcom <- TITcom[,colSums(TITcom != 0)>=3] # remove otus present in less than three samples, don't have 
+TITcom <- TITcom[,colSums(TITcom)>100] # keep otus with more than 100 reads, don't have
+#rownames(TITcom) <- as.numeric(gsub("_.+$","",rownames(TITcom))) # rename rows as numbers
+TITenv <- natura_clean$samples # get leaf data of samples for which i have the community
+names(natura_clean$samples)
+TITenv <- natura_clean$samples %>% dplyr::select(LSWC, SLA, LT, SRL, RootShoot, RootDiameter, Height, LA_rwc, gmin)
+#rownames(TITenv) <- rownames(data_leaf[data_leaf$number%in%rownames(TITcom),]) # rename rows as numbers
+dim(TITcom);dim(TITenv) # check that dims are compatible
+# [1] 132 764
+# [1] 132 11
+```
+
+```{r}
+library(purrr)
+library(TITAN2)
+z <- TITcom # rename
+quiet_titan <- quietly(titan)
+
+x <- TITenv
+n <- names(TITenv)
+
+
+walk2(TITenv, names(TITenv), function(x, n) { # iterate titan for all traits of TITenv
+  y <- z[!is.na(x),] # rm when having na in env
+  y <- y[,apply(y, 2, function(x) sum(x>0))>3] # rm otus present less than 3 times in the data (alrdy done)
+  x <- x[!is.na(x)]
+  titan(x, y, nBoot = 500, ncpus = 3, messaging = FALSE) %>%
+    saveRDS(paste("../results/titan/", n, "16s.RDS", sep="_")) # save the results in a .RDS file
+})
+```
+
+
+```{r}
+files_titan <- list.files(pattern="*16s.RDS",
+                          path = "./results/titan/titan",
+                          full.names = T) # read the titan results
+f_max <- which.max(sapply(files_titan, function(x) nrow(readRDS(x)$sppmax))) # get the rds titan file with the highest number of rows un sppmax (highest number of otu?)
+fmax_names <- rownames(readRDS(files_titan[f_max])$sppmax) # get rownames (otus)
+
+titan <-
+  sapply(files_titan, function(f){
+    x <- data.frame(readRDS(f)$sppmax) # get tabular result of singular otus results
+    z <- matrix(rep(NA, length(fmax_names)),
+                ncol = 1, dimnames=list(fmax_names, NULL))
+    decr <- subset(x, filter==1) # get negative response (decrease of the otu)
+    incr <- subset(x, filter==2) # positive ones
+    z[match(rownames(decr), rownames(z))] <- -decr$zscore # fill the column for the trait
+    z[match(rownames(incr), rownames(z))] <- incr$zscore
+    return(z)
+  })
+
+rownames(titan) <- fmax_names # add otus as row names
+
+titan <- titan[apply(titan, 1, function(x) any(!is.na(x))),] # remove otus never increasing or decreasing
+titan[is.na(titan)] <- 0 # set nas to 0s
+colnames(titan) <- gsub("./results/titan/titan/", "", colnames(titan))
+colnames(titan) <- gsub("_(.*)_16s.RDS", "\\1", colnames(titan)) # renames columns to get variable name only
+
+titan <- titan[apply(titan,1, function(x) sum(x!=0))>0,] # aint it the same as line with any is na?
+
+tax_16s <- natura_clean$motus %>% dplyr::select(id, path)
+tax_16s <- tax_16s %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE)
+
+tax_16s <- tax_16s[match(rownames(titan), rownames(tax_16s)),] # keep only otus present in titan results
+tax_16s <- tax_16s %>% rename(OTUs=id)
+
+#p <- grep("Unknown", tax_16s$Class_conf) # remove unknown for class from tax table AND titan results
+# tax_16s <- tax_16s[-p,]
+# titan <- titan[-p,]
+# zero OTUs for 16s
+```
+
+```{r}
+t <- rbind(apply(titan,2, function(x) sum(x<0)),
+           apply(titan,2, function(x) sum(x>0)),
+           apply(titan,2, function(x) sum(x!=0))
+)
+rownames(t) <- c("Number of increasers", "Number of decreasers", "Total")
+
+knitr::kable(t(t),
+             #col.names = colnames(t),
+             booktabs = TRUE,
+             caption = '**Summary of the TITAN analysis**.') %>%
+   save_kable(file = "./results/titan/Summary of the TITAN analysis.png")
+
+
+decr <- apply(titan, 1, function(x) any(x<0))
+incr <- apply(titan, 1, function(x) any(x>0))
+if (any(decr & incr)) cat("Beware, some OTUs are incr and decr!!") # whats the problem?
+```
+
+```{r}
+rorder <- rowMeans(titan) %>%
+  order # order rows by descending mean otus zscore
+corder <- apply(titan, 2, function(x) sum(x!=0)) %>%
+  order # order columns by number of responsive otus
+
+tit_dat <- t(titan[rorder,corder])
+
+data_heatmap_t16s <- reshape2::melt(tit_dat) # create ggplot data
+class <- data.frame(class=tax_16s$Class, motus=unique(data_heatmap_t16s$Var2))
+class <- class[,ncol(class):1]
+class$val <- "Bacterial class"
+
+data_heatmap_t16s <- data_heatmap_t16s %>% filter(Var1 != "TLP")
+data_heatmap_t16s <- data_heatmap_t16s %>% filter(Var1 != "MajVLA")
+data_heatmap_t16s <- data_heatmap_t16s %>% filter(Var1 != "StemDiameter")
+
+heatmap_16s <- ggplot(data_heatmap_t16s, aes(Var1, Var2, fill= value)) +
+  geom_tile()+
+  theme(axis.text.y=element_blank())+
+  xlab("")+
+  ylab("")+
+  scale_fill_gradientn(colors=c("#0057ff",
+                                "#e6e6e6",
+                                "#ff6b00"),
+                       limits = c(-14,14))+
+  theme(axis.text.x = element_text(angle=45,margin=margin(t=15)))
+
+heatmap_16s 
+
+class$motus <- as.character(class$motus)
+melted_data <- class%>%
+  group_by(class) %>%
+  summarize(count = n())
+
+class_abundance <- aggregate(class ~count, data = melted_data, sum)
+
+# Sort the data by the total abundance in descending order
+top_class <- head(class_abundance$class[order(class_abundance$count, decreasing = TRUE)], 7)
+
+# Classify other phyla as 'Others'
+class <- class %>%
+  mutate(class2 = ifelse(class %in% top_class, paste0(class), "Others"))
+
+# Calculate the relative abundances
+class_for_plot <- class_abundance %>% mutate(Relativeabundance = count / sum(count))
+class_for_plot <- left_join(class_for_plot, class)
+
+# Sort the data within each sample by increasing relative abundance
+class_for_plot <- class_for_plot %>%
+  group_by(class2) %>%
+  arrange(RelativeAbundance)
+
+```
+
+
+Check distrib of titan+ and titan- taxa in order
+```{r}
+
+data_heatmap_t16s <- data_heatmap_t16s %>%
+  mutate(TITAN = ifelse(value<0, "TITAN -", "TITAN + "))
+
+data_heatmap_t16s <- data_heatmap_t16s %>% filter(value != 0)
+
+data_heatmap_t16s <- data_heatmap_t16s %>% rename(motus = Var2)
+data_heatmap_t16s <- left_join(data_heatmap_t16s, class_for_plot )
+
+barplot <- ggplot(data_heatmap_t16s) +
+  aes(x = value, y = Relativeabundance, fill = class2) +
+   geom_bar(stat="identity", width=.7, position = "stack")+
+  scale_fill_hue(direction = 1) +
+  theme_classic()+
+  scale_y_continuous(expand = c(0,0))+
+  scale_fill_brewer(palette="Set3",direction=-1)+
+  ylab("Order relative abundance")+
+  xlab("")
+barplot
+```
+
+```{r}
+ggsave("../figz/titan_bplot_16s.png",barplot,device="png",width=4,height=5)
+```

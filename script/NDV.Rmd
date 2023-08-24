@@ -1,0 +1,109 @@
+---
+title: "NDV"
+author: "Marion Boisseaux"
+date: "2023-05-17"
+output: html_document
+---
+
+Calculate the abundance beta-null deviation metric for two different datasets: *leaf* and *root*. It is based on the approach described in the paper by Tucker et al. (2016), and it is an adaptation of the method proposed by Stegen et al. (2012).
+
+# leaf ITS 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+```
+
+*beta diversity* defined as gamma/alpha - 1:
+*alpha* is the average number of species in a group
+*gamma* is the total number of species in the group
+
+```{r}
+# Prepare and calculate abundance beta-null deviation metric
+comm.t=t(leaf$reads) #transpose reads
+bbs.sp.site <- comm.t
+patches=nrow(bbs.sp.site)
+rand <- 10
+
+# Parallelization
+parallel::detectCores() # how many cores
+n.cores <- parallel::detectCores() - 2 # select nb of cores: max - 2
+my.cluster <- parallel::makeCluster(
+  n.cores, 
+  type = "PSOCK"
+  ) #create the cluster
+doParallel::registerDoParallel(cl = my.cluster) #register it to be used by %dopart%
+foreach::getDoParRegistered() #check if registered
+foreach::getDoParWorkers() # check how many available
+
+# Create empty matrices/vectors, the dimensions of these matrices/vectors are determined based on the number of species (OTU) or sites (number of seedlings) in the data.
+null.alphas <- matrix(NA, ncol(comm.t), rand)
+null.alpha <- matrix(NA, ncol(comm.t), rand)
+expected_beta <- matrix(NA, 1, rand)
+null.gamma <- matrix(NA, 1, rand)
+null.alpha.comp <- numeric()
+bucket_bray_res <- matrix(NA, patches, rand)
+
+# Abundance Beta-Null Deviation Calculation
+bbs.sp.site = ceiling(bbs.sp.site/max(bbs.sp.site)) #normalisation of abundance data by dividing to max abundance value
+mean.alpha = sum(bbs.sp.site)/nrow(bbs.sp.site) # mean.alpha : mean abundance per site (seedlings)
+gamma <- ncol(bbs.sp.site) # gamma diversity : The total number of species : number of columns in bbs.sp.site, because we transposed it at the beginning
+obs_beta <- 1-mean.alpha/gamma #observed beta-diveristy : 1- mean alpha/gamma
+obs_beta_all <- 1-rowSums(bbs.sp.site)/gamma #difference with obs_beta?
+
+#loop that iterates *rand* = 999 times to calculate the null deviation metric.
+#Create a null distribution of the community data, maintain the total abundance per species and randomly reassign individuals to sites/seedlings 
+for (randomize in 1:rand) {  
+  null.dist = comm.t
+  for (species in 1:ncol(null.dist)) {
+    tot.abund = sum(null.dist[,species]) #for each species (OTU), calculates the total abundance by summing the values in the corresponding column of "null.dist". 
+    null.dist[,species] = 0 # It then sets all values in that column to 0.
+    for (individual in 1:tot.abund) {
+      sampled.site = sample(c(1:nrow(bbs.sp.site)), 1) #randomly reassign individuals from the total abundance to sites/seedlings 
+      null.dist[sampled.site, species] = null.dist[sampled.site, species] + 1
+    }
+  }
+    ##Calculate null deviation metrics (alpha, beta, gamma) for null patches and store
+  null.alphas[,randomize] <- apply(null.dist, 2, function(x){sum(ifelse(x > 0, 1, 0))})
+  null.gamma[1, randomize] <- sum(ifelse(rowSums(null.dist)>0, 1, 0))
+  expected_beta[1, randomize] <- 1 - mean(null.alphas[,randomize]/null.gamma[,randomize])
+  null.alpha <- mean(null.alphas[,randomize])
+  null.alpha.comp <- c(null.alpha.comp, null.alpha)
+
+  bucket_bray <- as.matrix(vegdist(null.dist, "bray")) #dissmiliarity matrix using bray-curtis distances
+    diag(bucket_bray) <- NA
+    bucket_bray_res[,randomize] <- apply(bucket_bray, 2, FUN="mean", na.rm=TRUE) #Mean dissimilarity values for each species are calculated and stored.
+} ## end randomize loop 
+
+## Calculate beta-diversity for observed metacommunity
+beta_comm_abund <- vegdist(comm.t, "bray")
+res_beta_comm_abund <- as.matrix(as.dist(beta_comm_abund))
+diag(res_beta_comm_abund) <- NA #diagonale null comparaisson deux a deux?
+
+#output beta diversity (Bray)
+beta_div_abund_stoch <- apply(res_beta_comm_abund, 2, FUN="mean", na.rm=TRUE)
+
+# output abundance beta-null deviation
+bray_abund_null_dev_fun <- beta_div_abund_stoch - mean(bucket_bray_res) #NDV : difference between the mean observed dissimilarity values and the mean dissimilarity values from the null distributions.
+
+#store in R project
+save(bray_abund_null_dev_fun,file="bray_abund_null_dev_fun.RData")
+
+
+boxplot(bray_abund_null_dev_fun,outline=FALSE)
+
+df_bray_fun_endo<-data.frame(bray_abund_null_dev_fun)
+colnames(df_bray_fun_endo)<-c("NDV")
+
+
+ggplot()+
+  geom_violin(data=df_bray_fun_endo,aes(x=factor(0),y=NDV),colour="black", fill="chartreuse3",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE) +
+  scale_x_discrete(breaks=c(0,1),labels=c("Endophytes","Epiphytes"))+
+  theme_bw()+
+  theme(panel.grid = element_blank(),axis.title.x = element_blank(), axis.text = element_text(size=14))+
+  annotate("text",x=2,y=0.355,label="T.test, p<0.001")
+
+```
+

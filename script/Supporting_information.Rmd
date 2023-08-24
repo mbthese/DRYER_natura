@@ -1,0 +1,1421 @@
+---
+title: "Spporting_information"
+author: "Marion Boisseaux"
+date: "2023-08-24"
+output: html_document
+---
+# Supporting Information
+
+Article title: Plant traits as drivers of endophytic communities in seasonally flooded forests?
+
+Authors: Marion Boisseaux1*, Valérie Troispoux1, Alice Bordes, Jocelyn Cazal1, Saint-Omer Cazal1, Sabrina Coste1, Clément Stahl1, Heidy Schimann2
+
+```{r main libraries, results='hide'}
+set.seed(123456)
+
+library(tidyverse)
+library(labdsv)
+library(dplyr)
+library(FactoMineR)
+library(car)
+library(missMDA)
+library(metabaR)
+library(ggplot2)
+library(corrplot)
+library(factoextra)
+library(MASS)
+library(cowplot)
+library(MuMIn)
+library(multcomp)
+library(ggpubr)
+library(ade4)
+library(hillR)
+library(adespatial)
+library(reldist)
+library(bipartite)
+library(vegan)
+library(scales)
+library(phyloseq)
+library(reshape2)
+library(ggpubr)
+library(purrr)
+library(stringr)
+library(BiocManager)
+#BiocManager::install("microbiome")
+library(microbiome)  
+
+# Enable the r-universe repo
+# options(repos = c(
+#     fawda123 = 'https://fawda123.r-universe.dev',
+#     CRAN = 'https://cloud.r-project.org'))
+
+# Install ggord
+#install.packages('ggord')
+library(ggord) #simple package for creating ordination plots with ggplot2. Marcus W. Beck (2017). ggord: Ordination Plots with ggplot2. R package version 1.0.0. https://zenodo.org/badge/latestdoi/35334615
+
+setwd("E:/Sophie_pipeline/obitools")
+```
+
+#Figures
+
+## Figure S1: The seven selected species’ phylogeny.
+
+```{r Figure S1, echo=FALSE, message=FALSE, warning=FALSE}
+
+#select focal species
+species <- data.frame(taxon = c(
+  "Eperua_falcata", 
+  "Iryanthera_hostmannii", 
+  "Jacaranda_copaia subsp. copaia",
+  "Pterocarpus_officinalis",
+  "Symphonia_globulifera",
+  "Tachigali_melinonii",
+  "Virola_surinamensis"
+))%>% separate(taxon, c("Genus", "Species"), sep = "_", remove = F)
+
+species <- dplyr::select(species, taxon , Genus, Species)
+
+#Use paracou database 30/08/2021 as the backbone phylogeny
+paracou <- read_excel("../Metradica_Paracou/Document/Paracou_database20210830.xlsx") %>% 
+  dplyr::select(Family, Genus, Species) %>% 
+  unique() %>% 
+  full_join(species) %>% 
+  mutate(species = paste(Genus, Species), genus = Genus, family = Family) %>% 
+  dplyr::select(species, genus, family, taxon) %>% 
+  mutate(taxon = as.character(taxon))
+
+#This function makes phylogenetic hypotheses for the focal species under three scenarios based on paracou database 30/08/2021. I use the default senario.
+tree <- phylo.maker(sp.list = paracou, tree = GBOTB.extended, nodes = nodes.info.1, scenarios = "S3")
+
+#remove "#" for the next two lines when running for the first time, to save and reload the phylogeny.
+
+#save(tree, file = "./Results/phylogeny_subset.Rdata")
+#load("./Results/phylogeny_subset.Rdata")
+
+#build tree and visualize it
+A<- fortify(tree$scenario.3) %>% 
+  mutate(species = gsub("_", " ", label)) %>% 
+  left_join(paracou) %>% 
+  ggtree(aes(col = taxon), layout="circular") + 
+  geom_tiplab2(aes(alpha = !is.na(taxon), size = !is.na(taxon))) +
+  theme_tree(legend.position='bottom', legend.text = element_text(face = "italic")) +
+  scale_alpha_manual("taxon", values = c(0.2, 4)) +
+  scale_size_manual("taxon", values = c(1, 4))
+
+A
+
+#save and choose saving format
+#ggsave(file="phylo_subset.svg", plot=A, width=15, height=10)
+#ggsave(file="phylo_subset.jpg", plot=A, width=15, height=10)
+```
+
+##Figure S2: The map of the collected seedlings
+
+*map constructed with QGIS 3.16 Hannover*
+
+##Figure S3:  Sampling design. 
+
+*figure drawn using Biorender.com*
+
+##Figure S4: Seedling dimensions. 
+
+
+```{r}
+traits <- read_csv("resources/DRYER_natura_imputed_traits.csv")
+
+ggplot(traits) +
+  aes(x = "", y = RootShoot, fill = Name) +
+  geom_boxplot() +
+  scale_fill_hue(direction = 1) +
+  theme_minimal()
+
+traits <- traits %>%
+  dplyr::select(Name,NbLeaves, Height, StemDiameter,RootShoot) %>% 
+  reshape2::melt(c("Name"), variable.name = "Trait")
+
+p <-  traits %>%
+  mutate(Trait = as.character(Trait)) %>% 
+  mutate(Trait = dplyr::recode(Trait, "NbLeaves" = "Number~of~leaves", "Height"= "Height~(cm)", "StemDiameter"="Stem~diameter~(mm)", "RootShoot"= "Root~Shoot~ratio")) %>% 
+  left_join(dplyr::select(traits, Name) %>%
+              unique() %>%
+              arrange(Name) %>%
+              mutate(order_graph = 1:n())) %>%
+  mutate(Name = gsub("_", " ", Name)) %>% 
+  separate(Name, c("genus", "species")) %>% 
+  mutate(Name = paste0(str_sub(genus, 1, 1), ". ", species)) %>% 
+  ggplot(aes(x = reorder(Name, order_graph), y= value)) +
+  geom_boxplot(aes(fill = Name),
+  #              alpha = 0.5, col = "lightgrey") +
+  #geom_violin(aes(fill = Type),
+               alpha = 0.5, col = "lightgrey") +
+ 
+  facet_wrap(~ Trait, scales = "free_x", label = label_parsed) +
+  theme_minimal(base_size = 15) +
+  coord_flip() +
+   scale_fill_manual(name = "Species", values= c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7"))+
+  theme(axis.text.y = element_text(face = "italic"), axis.title = element_blank(),legend.position = "bottom", legend.text = element_text(face="italic")) 
+p
+
+ggsave(filename = "Seedling dimension.png", plot = p, bg = "white", width = 10, height = 8, dpi = 600)
+```
+
+##Figure S5 : Total contribution of variables to PCA axes 1, 2, 3 and 4.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+###########################################
+# Data preparation and log-transformation #
+###########################################
+
+#traits imputed
+traits <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+
+traits$code <- as.character(traits$code)
+
+############################
+#Construction of golbal PCA#
+############################
+Data_PCA <- traits %>% dplyr::select(Name, norm_SRL, norm_RootDiameter, norm_RootTissueDensity, norm_TotalLeafArea, norm_LSWC, norm_StomatalDensity,norm_LT, norm_gmin,norm_SLA)
+
+library(devtools)
+#install_github('sinhrks/ggfortify')
+library(ggfortify); library(ggplot2)
+
+Data_PCA <- Data_PCA %>%
+  rename(SRL = norm_SRL, RD = norm_RootDiameter, RTD = norm_RootTissueDensity, Total_LA = norm_TotalLeafArea, LSWC = norm_LSWC, SD = norm_StomatalDensity, LT = norm_LT, gmin = norm_gmin, SLA= norm_SLA)
+
+#contributions
+res <- PCA(Data_PCA[,-1], scale.unit = TRUE)
+# Contributions of variables to PC1
+contri_1<- fviz_contrib(res, choice = "var", axes = 1, top = 10)
+# Contributions of variables to PC2
+contri_2<- fviz_contrib(res, choice = "var", axes = 2, top = 10)
+# Contributions of variables to PC2
+contri_3<- fviz_contrib(res, choice = "var", axes = 3, top = 10)
+contri_4<- fviz_contrib(res, choice = "var", axes = 4, top = 10)
+
+contri <- ggarrange(contri_1, contri_2, contri_3, contri_4, labels = c("A", "B", "C", "D"), ncol=2, nrow=2, common.legend = T, legend = "bottom")
+
+ggsave(filename = "contributionPCA.png", plot = contri, bg = "white", width = 12, height = 8, dpi = 600)
+```
+
+##Figure S6: Major bacterial phyla detected in the roots and leaves of the seven tropical tree seedlings.
+
+```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+# Aggregate the metabarlist at the class level
+leaf_phy <-  aggregate_motus(leaf, groups= leaf$motus$Phylum)
+
+leaf_phy$samples$Name <- paste0(substr(leaf_phy$samples$Genus, 1, 1), ".", " ", leaf_phy$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_phy$reads, by = list(
+    paste(leaf_phy$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+#                        Phylum   Value    Proportion
+# 
+# 1              Abditibacteriota    301  0.03587318
+# 2               Acidobacteriota  17541  2.09053627
+# 3              Actinobacteriota 433451 51.65868757
+# 4                    Aquificota     43  0.00512474
+# 5                Armatimonadota    347  0.04135546
+# 6                  Bacteroidota   8760  1.04401675
+# 7              Bdellovibrionota    476  0.05672968
+# 8              Campylobacterota      4  0.00047672
+# 9                   Chloroflexi  39991  4.76612714
+# 10         Coprothermobacterota      2  0.00023836
+# 11                Cyanobacteria   5082  0.60567273
+# 12                 Deinococcota   1420  0.16923559
+# 13                 Dependentiae     14  0.00166852
+# 14             Desulfobacterota     37  0.00440966
+# 15              Elusimicrobiota     42  0.00500556
+# 16                      FCPU426      6  0.00071508
+# 17               Fibrobacterota     23  0.00274114
+# 18                   Firmicutes  60983  7.26795357
+# 19               Fusobacteriota     59  0.00703162
+# 20              Gemmatimonadota   1077  0.12835685
+# 21             Latescibacterota      2  0.00023836
+# 22                       MBNT15      3  0.00035754
+# 23                  Myxococcota   6862  0.81781312
+# 24                           NA    344  0.04099792
+# 25                        NB1-j      2  0.00023836
+# 26                 Nitrospirota     34  0.00405212
+# 27              Patescibacteria    380  0.04528840
+# 28              Planctomycetota     12  0.00143016
+# 29               Proteobacteria 261032 31.10979219
+# 30                      RCP2-54     30  0.00357540
+# 31 SAR324 clade(Marine group B)     42  0.00500556
+# 32                Spirochaetota     61  0.00726998
+# 33                      Sva0485      2  0.00023836
+# 34                 Synergistota      4  0.00047672
+# 35                 Thermotogota     23  0.00274114
+# 36            Verrucomicrobiota    566  0.06745588
+# 37                        WPS-2      6  0.00071508
+# 38                 Zixibacteria      3  0.00035754
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Phylum2[which(tmp$Phylum2== "NA")] <- "unidentified"
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", 
+                     #"#FFE898", 
+                     "#C1A13E", 
+                     #"#5D641E",
+                     "#BAD0C4", #muco
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
+#plot phyla
+A <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+A
+
+## root
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# Aggregate the metabarlist at the class level
+root_phy <-  aggregate_motus(root, groups= root$motus$Phylum)
+
+root_phy$samples$Name <- paste0(substr(root_phy$samples$Genus, 1, 1), ".", " ", root_phy$samples$Species)
+
+# Aggregate per organ/genus
+tmp_root <-  melt(aggregate(root_phy$reads, by = list(
+    paste(root_phy$samples$Name)), sum))
+
+colnames(tmp_root) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp_root, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp_root <- tmp_root %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp_root %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp_root <- merge(tmp_root, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp_root$RelativeAbundance <- tmp_root$Value / tmp_root$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp_root <- tmp_root %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", #acido et actino
+                     #"#C1A13E", 
+                     "#5D641E", #myxo
+                     "#BAD0C4", #chloroflexi
+                     "#7CAED1", "#98D3F1", #fimicutes, others
+                    #"#DEC769",
+                    "#EFEFBB",  #proteo
+                    "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
+tmp_root$Phylum2[which(tmp_root$Phylum2== "NA")] <- "unidentified"
+
+#convert 'position' to factor and specify level order
+tmp_root$Phylum2 <- factor(tmp_root$Phylum2 , levels=c('Acidobacteriota', 'Actinobacteriota', 'Myxococcota', 'Chloroflexi', 'Firmicutes', 'Others', 'Proteobacteria'))
+
+#plot phyla
+B <- tmp_root %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp_root$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+B
+
+phylum <- ggarrange(A, B, ncol = 1, nrow = 2)
+phylum
+ggsave("./results/phylum_bacteria.jpeg", phylum, width = 7, height = 6)
+```
+
+
+
+##Figure S7: Top 20 bacterial orders detected in the roots and leaves of the seven tropical tree seedlings.
+
+```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+#leaf$motus$Phylum_Class_Order <- paste0(leaf$motus$Phylum, ";", " ", leaf$motus$Class, ";", " ",leaf$motus$Order)
+
+leaf$motus$Order <- paste0("o__",leaf$motus$Order)
+
+# Aggregate the metabarlist at the class level
+#leaf_order <-  aggregate_motus(leaf, groups= leaf$motus$Phylum_Class_Order)
+leaf_order <-  aggregate_motus(leaf, groups= leaf$motus$Order)
+leaf_order$samples$Species <- str_sub(leaf_order$samples$Species,1,-2)
+leaf_order$samples$Name <- paste0(substr(leaf_order$samples$Genus, 1, 1), ".", " ", leaf_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_order$reads, by = list(
+    paste(leaf_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+#                                                     Order  Value Proportion
+# 1     Actinobacteriota; Actinobacteria; Corynebacteriales 147742  17.607891
+# 2        Proteobacteria; Alphaproteobacteria; Rhizobiales 133217  15.876801
+# 3            Actinobacteriota; Actinobacteria; Frankiales  79153   9.433454
+# 4  Actinobacteriota; Thermoleophilia; Solirubrobacterales  55864   6.657871
+# 5     Actinobacteriota; Actinobacteria; Pseudonocardiales  50485   6.016802
+# 6     Actinobacteriota; Actinobacteria; Micromonosporales  47323   5.639955
+# 7      Proteobacteria; Alphaproteobacteria; Rickettsiales  37717   4.495112
+# 8    Proteobacteria; Gammaproteobacteria; Burkholderiales  36873   4.394524
+# 9               Chloroflexi; Chloroflexia; Chloroflexales  27723   3.304027
+# 10                        Firmicutes; Bacilli; Bacillales  24773   2.952446
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "o__NA")] <- "unidentified"
+
+#cool function to make names pretty
+simplify_A <- function(value) {
+  if (value == "Others") {
+    return("Others")
+  } else {
+    simplified <- sub("^.*?o__(\\w+).*?$", "o__\\1", value)
+    ifelse(grepl("NA", simplified), sub("; NA.*?$", "; unknown", simplified), simplified)
+  }
+}
+
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+# Define the manual colors for six levels
+custom_colors23<- c("#774C22", "#965326", 
+                     "#FFE898", 
+                     "#C1A13E", 
+                     "#5D641E",
+                     "#BAD0C4",
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C",
+                     "#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818","#F67E13", "#BC3853", "#F3E762", "#64146E", "#A36A69", "#fc03ec", "#a81513") 
+
+#plot phyla
+E <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors23) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+E
+
+## root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#root$motus$Phylum_Class_Order <- paste0(root$motus$Phylum, ";", " ", root$motus$Class, ";", " ",root$motus$Order)
+
+root$motus$Order <- paste0("o__",root$motus$Order)
+
+# Aggregate the metabarlist at the class level
+root_order <-  aggregate_motus(root, groups= root$motus$Order)
+root_order$samples$Species <- str_sub(root_order$samples$Species,1,-2)
+root_order$samples$Name <- paste0(substr(root_order$samples$Genus, 1, 1), ".", " ", root_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(root_order$reads, by = list(
+    paste(root_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+#    Order  Value Proportion
+# 1           o__Frankiales 169232  27.249599
+# 2          o__Rhizobiales  78283  12.605065
+# 3           o__Bacillales  48140   7.751464
+# 4  o__Solirubrobacterales  36430   5.865929
+# 5      o__Burkholderiales  34908   5.620858
+# 6         o__Polyangiales  30176   4.858915
+# 7    o__Corynebacteriales  23685   3.813739
+# 8        o__Rickettsiales  17772   2.861633
+# 9                   o__NA  16771   2.700453
+# 10     o__Lactobacillales  12950   2.085198
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "o__NA")] <- "unidentified"
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+#plot phyla
+F <- tmp  %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors23) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+F
+
+Order <- ggarrange(E, F, ncol = 1, nrow = 2)
+
+ggsave("./results/Order_bacteria.jpeg", Order, width = 8, height = 10)
+```
+
+
+##Figure S8: Major fungal phyla detected in the roots and leaves of the seven tropical tree seedlings.
+
+```{r}
+load("./results/Metabarlist_natura_clean_ITS2.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+# Aggregate the metabarlist at the class level
+leaf_phy <-  aggregate_motus(leaf, groups= leaf$motus$Phylum)
+
+leaf_phy$samples$Name <- paste0(substr(leaf_phy$samples$Genus, 1, 1), ".", " ", leaf_phy$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_phy$reads, by = list(
+    paste(leaf_phy$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+#                        Phylum   Value    Proportion
+# 1                           NA   89319  6.8535794470
+# 2                p__Ascomycota 1077972 82.7143916037
+# 3         p__Basidiobolomycota      63  0.0048340835
+# 4             p__Basidiomycota  129250  9.9175443470
+# 5           p__Chytridiomycota    3371  0.2586618336
+# 6       p__Entomophthoromycota       9  0.0006905834
+# 7  p__Fungi_phy_Incertae_sedis    3013  0.2311919622
+# 8             p__Glomeromycota      25  0.0019182871
+# 9           p__Kickxellomycota      33  0.0025321390
+# 10       p__Monoblepharomycota       8  0.0006138519
+# 11        p__Mortierellomycota      50  0.0038365742
+# 12             p__Mucoromycota     114  0.0087473892
+# 13            p__Rozellomycota      19  0.0014578982
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Phylum2[which(tmp$Phylum2== "NA")] <- "unidentified"
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", 
+                     #"#FFE898", 
+                     "#C1A13E", 
+                     #"#5D641E",
+                     "#BAD0C4", #muco
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
+#convert 'position' to factor and specify level order
+tmp$Phylum2 <- factor(tmp$Phylum2 , levels=c('unidentified', 'p__Ascomycota', 'p__Basidiomycota', 'p__Chytridiomycota', 'p__Mucoromycota', 'Others', 'p__Fungi_phy_Incertae_sedis'))
+
+#plot phyla
+A <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+A
+
+## root
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# Aggregate the metabarlist at the class level
+root_phy <-  aggregate_motus(root, groups= root$motus$Phylum)
+
+root_phy$samples$Name <- paste0(substr(root_phy$samples$Genus, 1, 1), ".", " ", root_phy$samples$Species)
+
+# Aggregate per organ/genus
+tmp_root <-  melt(aggregate(root_phy$reads, by = list(
+    paste(root_phy$samples$Name)), sum))
+
+colnames(tmp_root) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp_root, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp_root <- tmp_root %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp_root %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp_root <- merge(tmp_root, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp_root$RelativeAbundance <- tmp_root$Value / tmp_root$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp_root <- tmp_root %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", "#C1A13E", 
+                        "#5D641E", "#BAD0C4", "#7CAED1", "#98D3F1",
+                     "#B7D6C7", #used until here
+                        "#DEC769", "#EFEFBB", "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
+tmp_root$Phylum2[which(tmp_root$Phylum2== "NA")] <- "unidentified"
+
+#convert 'position' to factor and specify level order
+tmp_root$Phylum2 <- factor(tmp_root$Phylum2 , levels=c('unidentified', 'p__Ascomycota', 'p__Basidiomycota', 'p__Glomeromycota', 'p__Chytridiomycota', 'p__Mucoromycota', 'Others'))
+
+#plot phyla
+B <- tmp_root %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp_root$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+B
+
+phylum <- ggarrange(A, B, ncol = 1, nrow = 2)
+
+ggsave("./results/phylum_fungi.jpeg", phylum, width = 7, height = 6)
+```
+
+
+
+##Figure S9: Top 20 fungal orders detected in the roots and leaves of the seven tropical tree seedlings.
+
+```{r}
+load("./results/Metabarlist_natura_clean_ITS2.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+leaf$motus$Phylum_Class_Order <- paste0(leaf$motus$Phylum, ";", " ", leaf$motus$Class, ";", " ",leaf$motus$Order)
+
+# Aggregate the metabarlist at the class level
+leaf_order <-  aggregate_motus(leaf, groups= leaf$motus$Phylum_Class_Order)
+
+leaf_order$samples$Name <- paste0(substr(leaf_order$samples$Genus, 1, 1), ".", " ", leaf_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_order$reads, by = list(
+    paste(leaf_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+# 
+#                                                      Order  Value Proportion
+# 1  p__Ascomycota; c__Dothideomycetes; o__Botryosphaeriales 175133  13.438215
+# 2         p__Ascomycota; c__Sordariomycetes; o__Xylariales 153181  11.753805
+# 3                                    p__Ascomycota; NA; NA 144590  11.094605
+# 4        p__Ascomycota; c__Sordariomycetes; o__Hypocreales  92994   7.135568
+# 5                                               NA; NA; NA  89319   6.853579
+# 6  p__Ascomycota; c__Sordariomycetes; o__Chaetosphaeriales  74280   5.699615
+# 7       p__Ascomycota; c__Dothideomycetes; o__Pleosporales  73540   5.642833
+# 8       p__Ascomycota; c__Sordariomycetes; o__Diaporthales  51503   3.951902
+# 9                    p__Ascomycota; c__Sordariomycetes; NA  42064   3.227633
+# 10     p__Ascomycota; c__Sordariomycetes; o__Glomerellales  38798   2.977028
+
+#only for Pteoff
+
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "NA; NA; NA")] <- "unidentified"
+
+#cool function to make names pretty
+simplify_A <- function(value) {
+  if (value == "Others") {
+    return("Others")
+  } else {
+    simplified <- sub("^.*?o__(\\w+).*?$", "o__\\1", value)
+    ifelse(grepl("NA", simplified), sub("; NA.*?$", "; unknown", simplified), simplified)
+  }
+}
+
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+# Define the manual colors for six levels
+custom_colors20<- c("#774C22", "#965326", 
+                     "#FFE898", 
+                     "#C1A13E", 
+                     "#5D641E",
+                     "#BAD0C4",
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C",
+                     "#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818","#F67E13", "#BC3853", "#F3E762", 
+                        "#64146E", "#A36A69")
+
+#plot phyla
+E <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors20) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+E
+
+## root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+root$motus$Phylum_Class_Order <- paste0(root$motus$Phylum, ";", " ", root$motus$Class, ";", " ",root$motus$Order)
+
+# Aggregate the metabarlist at the class level
+root_order <-  aggregate_motus(root, groups= root$motus$Phylum_Class_Order)
+
+root_order$samples$Name <- paste0(substr(root_order$samples$Genus, 1, 1), ".", " ", root_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(root_order$reads, by = list(
+    paste(root_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+#                                                    Order  Value Proportion
+# 1                                   p__Ascomycota; NA; NA 107000  15.524909
+# 2       p__Ascomycota; c__Dothideomycetes; o__Venturiales  44893   6.513642
+# 3       p__Ascomycota; c__Sordariomycetes; o__Sordariales  39673   5.756259
+# 4       p__Ascomycota; c__Sordariomycetes; o__Hypocreales  38356   5.565172
+# 5          p__Ascomycota; c__Leotiomycetes; o__Helotiales  37424   5.429946
+# 6      p__Basidiomycota; c__Agaricomycetes; o__Agaricales  34400   4.991186
+# 7  p__Basidiomycota; c__Agaricomycetes; o__Trechisporales  33539   4.866261
+# 8      p__Ascomycota; c__Sordariomycetes; o__Diaporthales  29799   4.323615
+# 9      p__Ascomycota; c__Dothideomycetes; o__Pleosporales  27977   4.059256
+# 10       p__Ascomycota; c__Sordariomycetes; o__Xylariales  24255   3.519221
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "NA; NA; NA")] <- "unidentified"
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+#plot phyla
+F <- tmp  %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors20) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+F
+
+Order <- ggarrange(E, F, ncol = 1, nrow = 2)
+
+ggsave("./results/Order_fungi.jpeg", Order, width = 8, height = 10)
+```
+
+
+##Figure S10: Alpha diversity of seven tropical tree seedlings.
+
+*Bacteria*
+```{r}
+
+# data 16S
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#endo leaf alpha-div - Hill numbers
+alpha_16S_leaf<-hill_taxa(leaf$reads,q=1)
+leaf$samples$Shannon <- alpha_16S_leaf
+
+#endo root alpha-div - Hill numbers
+alpha_16S_root<-hill_taxa(root$reads,q=1)
+root$samples$Shannon <- alpha_16S_root
+
+#shapiro for shannon normality
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.99066, p-value = 0.8902
+# 
+# > shapiro.test(root$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.98149, p-value = 0.461
+
+shannon.anova.leaf<-aov(Shannon ~ name, leaf$samples)
+summary(shannon.anova.leaf) #0.812
+shannon.anova.root<-aov(Shannon ~ name, root$samples)
+summary(shannon.anova.root) #  0.441
+
+alpha_16S_plot_leaf <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+ ylab(expression(paste("Alpha diversity / bacteria")))+
+  theme_minimal(base_size = 20)+
+    geom_text(aes(x = 3, y = 150, label = "p-value = 0.8"), color = "black", size = 6)+
+  theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom") 
+
+alpha_16S_plot_root <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  # ylab(expression(paste("Alpha diversity \n bacteria")))+
+  theme_minimal(base_size = 20)+
+   geom_text(aes(x = 3, y = 110, label = "p-value = 0.4"), color = "black", size = 6)+
+  theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_blank()) 
+```
+
+*Fungi*
+```{r}
+
+#data ITS
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#endo alpha-div - Hill numbers
+alpha_ITS_leaf<-hill_taxa(leaf$reads,q=1)
+leaf$samples$Shannon <- alpha_ITS_leaf
+
+#endo alpha-div - Hill numbers
+alpha_ITS_root<-hill_taxa(root$reads,q=1)
+root$samples$Shannon <- alpha_ITS_root
+
+shapiro.test(root$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.91648, p-value = 0.0006959
+# 
+shapiro.test(leaf$samples$Shannon)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.91064, p-value = 9.374e-05
+
+#not normally distributed therefore i use BoxCox tranformation
+library(MASS)
+bc<-boxcox(lm(leaf$samples$Shannon~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((leaf$samples$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(leaf$samples$Shannon^lambda-1)/lambda
+leaf$samples$norm_Shannon <-norm_Shannon 
+
+bc<-boxcox(lm(root$samples$Shannon~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((root$samples$Shannon^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(root$samples$Shannon^lambda-1)/lambda
+root$samples$norm_Shannon <-norm_Shannon 
+
+shannon.anova.leaf<-aov(norm_Shannon ~ name, leaf$samples)
+summary(shannon.anova.leaf) #0.906 (before normalisation) 0.902 after boxcox
+shannon.anova.root<-aov(norm_Shannon ~ name, root$samples)
+summary(shannon.anova.root) # 0.032 * (before normalisation) 0.0376  after boxcox
+
+#Tukey for roots
+shannon.tukey <- TukeyHSD(shannon.anova.root)
+cld<- multcompView::multcompLetters4(shannon.anova.root, shannon.tukey)
+letters<- as.data.frame.list(cld$name) #comapraison intra organ, inter espèce
+
+
+alpha_ITS_plot_leaf <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  ylab(expression(paste("Alpha diversity / fungi")))+ #\n jump line
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value = 0.9"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
+
+alpha_ITS_plot_root <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  #ylab(expression(paste("Alpha diversity \n fungi")))+
+  theme_minimal(base_size = 20)+
+    geom_text(aes(x = 3, y = 100, label = "p-value = 0.03"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_blank()) 
+alpha_ITS_plot_root 
+```
+
+plots
+```{r}
+
+#combine plots ITS leaf and root
+alpha_plot <- ggarrange(alpha_ITS_plot_leaf,alpha_ITS_plot_root, alpha_16S_plot_leaf,alpha_16S_plot_root, labels = c('A', 'B', 'C', 'D'), ncol = 2, nrow = 2, legend = "none", label.y = c(1,1,1.15,1.15), font.label = list(size=18))
+alpha_plot
+
+ggsave("./results/SI_Hill_alpha_diversity.jpeg", alpha_plot, width = 12, height =8)
+```
+
+##Figure S11: Rarefaction curves.
+*Fungi*
+
+```{r}
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+#leaf fungi
+natura.raref.fungi = hill_rarefaction(leaf, nboot = 20, nsteps = 10)
+head(natura.raref.fungi$hill_table)
+gghill_rarefaction(natura.raref.fungi)
+material <- leaf$samples$Genus[match(leaf$pcrs$sample_id,                                rownames(leaf$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(leaf$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+p <- gghill_rarefaction(natura.raref.fungi, group=material) 
+rarefaction_leaf_fungi <- p + ggtitle("A. Rarefaction curves - Leaf fungi")+
+  theme(legend.text = element_text(size = 15, face = "italic"), legend.title = element_blank())
+
+#root fungi
+natura.raref.fungi = hill_rarefaction(root, nboot = 20, nsteps = 10)
+head(natura.raref.fungi$hill_table)
+gghill_rarefaction(natura.raref.fungi)
+material <- root$samples$Genus[match(root$pcrs$sample_id,                                rownames(root$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(root$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+p <- gghill_rarefaction(natura.raref.fungi, group=material) 
+rarefaction_root_fungi <- p + ggtitle("B. Rarefaction curves - Root fungi")+
+  theme(legend.text = element_text(size = 15, face = "italic"), legend.title = element_blank())
+```
+
+*Bacteria*
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+#leaf bacteria
+natura.raref.bacteria = hill_rarefaction(leaf, nboot = 20, nsteps = 10)
+head(natura.raref.bacteria$hill_table)
+gghill_rarefaction(natura.raref.bacteria)
+material <- leaf$samples$Genus[match(leaf$pcrs$sample_id,                                rownames(leaf$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(leaf$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+p <- gghill_rarefaction(natura.raref.bacteria, group=material) 
+rarefaction_leaf_bacteria <- p + ggtitle("C. Rarefaction curves - Leaf bacteria")+
+  theme(legend.text = element_text(size = 15, face = "italic"), legend.title = element_blank())
+
+#root bacteria
+natura.raref.bacteria = hill_rarefaction(root, nboot = 20, nsteps = 10)
+head(natura.raref.bacteria$hill_table)
+gghill_rarefaction(natura.raref.bacteria)
+material <- root$samples$Genus[match(root$pcrs$sample_id,                                rownames(root$samples))] # Define a vector containing the Material info for each pcrs
+material <- setNames(material,rownames(root$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
+p <- gghill_rarefaction(natura.raref.bacteria, group=material) 
+rarefaction_root_bacteria <- p + ggtitle("D. Rarefaction curves - Root bacteria") +
+  theme(legend.text = element_text(size = 15, face = "italic"), legend.title = element_blank())
+rarefaction_root_bacteria
+```
+
+plot together
+```{r}
+rarefaction <- ggarrange(rarefaction_leaf_fungi, rarefaction_root_fungi, rarefaction_leaf_bacteria, rarefaction_root_bacteria, nrow = 2, ncol = 2, common.legend = TRUE, legend = "bottom")
+rarefaction
+ggsave(filename = "Rarefaction_curves.png", plot = rarefaction, bg = "white", width = 12, height = 10, dpi = 600)
+```
+he plots for q=0
+reveal that when sample size is greater than 100, the bacterial biota in Subject D is more diverse than that in Subject C, and the difference is significant when the sample size exceeds 400. By contrast, for measures of q=1
+and 2, the direction is reversed. This pattern implies that the proportion of rare branch segments (those branches with low node abundances) for the bacterial biota in Subject D is higher than Subject C, whereas for Subject C the proportion of common/dominant branch segments (those branches with high node abundances) is higher. For each subject the sampling curve for Faith’s PD increases steeply with sample size, but the curves for q=1
+and 2 level off beyond the reference sample, illustrating that higher-order q
+PD measures are increasingly dominated by the frequencies of the more common branches, and are therefore less sensitive to sampling effects. The curve for q=2
+tends to stabilize very quickly with narrow confidence intervals. This is because the phylogenetic measure of q=2
+is mainly determined by the long branches with very high node abundances, and all these species/lineages can be observed in samples with relatively small sizes
+
+#Tables
+
+##Table S1 : Description of the bacterial and fungal endophyte dataset. Number of replicates, means number of reads and OTUs per replicate per species.
+
+*Bacteria*
+```{r}
+#LEAF
+load("./results/Metabarlist_natura_clean_16S_leaf.Rdata")
+summary(leaf_metabar_clean)
+
+leaf_metabar_clean$samples$nb_reads <- rowSums(leaf_metabar_clean$reads) #get number of reads per sample
+leaf_metabar_clean$samples$nb_motus <- rowSums(leaf_metabar_clean$reads>0) #get number of OTUs per sample
+
+#to get number of motus and reads
+leaf2 <- melt(leaf_metabar_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+leaf3 <- leaf2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (leaf) per species
+leaf <- leaf2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_leaf <- left_join(leaf3, leaf) 
+table_leaf$organ <- "leaf"
+
+#-------------------------------------------------------------------
+#ROOT
+load("./results/Metabarlist_natura_clean_16S_root.Rdata") #name: root_metabar_clean
+summary(root_metabar_clean)
+
+
+root_metabar_clean$samples$nb_reads <- rowSums(root_metabar_clean$reads) #get number of reads per sample
+root_metabar_clean$samples$nb_motus <- rowSums(root_metabar_clean$reads>0) #get number of OTUs per sample
+
+#to get number of motus and reads
+root2 <- melt(root_metabar_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+root3 <- root2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (root) per species
+root <- root2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_root <- left_join(root3, root) 
+table_root$organ <- "root"
+
+
+#join root and leaf table for bacteria
+
+table_bacteria <- rbind(table_root, table_leaf) %>%
+  relocate(organ, .before =name) %>%
+  relocate(n, .before = mean_nb_reads) %>%
+  mutate(name = gsub("_", " ", name)) %>%
+  rename(Species = name) %>%
+  rename(n_bacteria = n, 
+         mean_nb_reads_bacteria = mean_nb_reads, 
+         mean_nb_motus_bacteria = mean_nb_motus) 
+
+##FUNGI
+load("./results/Metabarlist_natura_clean_ITS2.Rdata")
+summary_metabarlist(natura_clean)
+#LEAF
+load("./results/Metabarlist_leaf_clean_ITS2.Rdata")
+summary_metabarlist(leaf_ITS_clean)
+leaf_ITS_clean$samples$nb_reads <- rowSums(leaf_ITS_clean$reads) #get number of reads per sample
+leaf_ITS_clean$samples$nb_motus <- rowSums(leaf_ITS_clean$reads>0) #get number of OTUs per sample
+#to get number of motus and reads
+leaf2 <- melt(leaf_ITS_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+leaf3 <- leaf2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (leaf) per species
+leaf <- leaf2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_leaf <- left_join(leaf3, leaf) 
+table_leaf$organ <- "leaf"
+
+#-------------------------------------------------------------------
+#ROOT
+load("./results/Metabarlist_root_clean_ITS2.Rdata") #name: root_metabar_clean
+summary_metabarlist(root_ITS_clean)
+
+
+root_ITS_clean$samples$nb_reads <- rowSums(root_ITS_clean$reads) #get number of reads per sample
+root_ITS_clean$samples$nb_motus <- rowSums(root_ITS_clean$reads>0) #get number of OTUs per sample
+
+#to get number of motus and reads
+root2 <- melt(root_ITS_clean$samples,id = c("name", "nb_reads", "nb_motus"))
+
+root3 <- root2 %>%
+  group_by(name) %>%
+  summarise(mean_nb_reads = round(mean(nb_reads)), 
+            mean_nb_motus = round(mean(nb_motus)))
+
+#to get number of samples (root) per species
+root <- root2 %>%
+  filter(variable == "sample_id") %>%
+  group_by(name) %>%
+  summarise(n= n())
+
+#table of number of reads, OTU and samples per species
+table_root <- left_join(root3, root) 
+table_root$organ <- "root"
+
+
+#join root and leaf table
+
+table_fungi <- rbind(table_root, table_leaf) %>%
+  relocate(organ, .before =name) %>%
+  relocate(n, .before = mean_nb_reads) %>%
+  mutate(name = gsub("_", " ", name)) %>%
+  rename(Species = name) %>%
+  rename(n_fungi = n, 
+         mean_nb_reads_fungi = mean_nb_reads, 
+         mean_nb_motus_fungi = mean_nb_motus) 
+  
+
+table <- left_join(table_bacteria, table_fungi)
+
+
+table %>%
+  dplyr::select(-organ) %>% #remove it otherwise redundant
+  kbl(escape = FALSE) %>% #title
+  pack_rows(index = c("root" = 7, "leaf" = 7)) %>% #to group by organ
+  row_spec(0, bold = TRUE) %>% #first row is in bold
+  column_spec(1, italic = T, width = "1em") %>% #make species name in italic
+  kable_classic(html_font = "Cambria") %>%
+  kable_styling(font_size = 20) %>%
+  save_kable(file = "./results/summary.png") #make it bigger add zoom = 5 in save_kable
+
+
+```
+
+
+##Table S2. Soil composition of SF soils in Paracou station where seedlings were collected.
+
+```{r soil analysis natura, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(gt)
+library(glue)
+library(webshot2)
+library(kableExtra)
+
+analyses_sol <- read_excel("E:/Sophie_pipeline/obitools/resources/DRYER_natura/analyses_sol.xls", sheet = "Feuil2")
+
+analyses_sol <- analyses_sol[-c(7:11), ] 
+analyses_sol <- analyses_sol[-c(19:20), ] 
+analyses_sol <- analyses_sol %>% dplyr::select(-Greenhouse) 
+
+
+analyses_sol_table <- gt(analyses_sol)
+
+analyses_sol$`Soil Tests`[9] <- paste0(analyses_sol$`Soil Tests`[9], 
+                                footnote_marker_symbol(1))
+
+analyses_sol$Paracou <- as.numeric(analyses_sol$Paracou) %>% round(digits = 2)
+analyses_sol<- analyses_sol %>% drop_na(Paracou)
+
+kbl(analyses_sol, caption ="Soil composition of seasonally flooded soils of Paracou.\\\\
+\\Analyses performed on composite samples 8 different locations in Paracou. Soil samples were collected in the 0-10 cm horizon.", escape =F, padding = -1L) %>%
+  kable_classic_2(full_width = F) %>%
+#   kable_styling(font_size = 20) %>%
+ row_spec(0, bold = TRUE, font_size = 15) %>%
+  footnote(general = "Results expressed in relation to the soil prepared according to the NF ISO 11464 standard, Cirad, Montpellier.",
+           symbol = c("For available phosphorous, the Olsen method was used, best method for acid soils.")) %>%
+ save_kable(
+    "analyses_sol_table_innatura.png")
+
+View(analyses_sol)
+
+```

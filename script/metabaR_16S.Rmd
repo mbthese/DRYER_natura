@@ -39,6 +39,31 @@ Creation de la MetarbarList avec les 4 objets:
 *Reads : une table avec les séquences en ligne et les Motus (abondance) en colonne*
 *Sample : les échantillons en ligne et leurs infos associer en colonne (position GPS, altitude, milieu de prélèvement, etc). Mais si non disponible la liste des échantillons suffit*
 
+For bacteria taxa assignation, it needs to be done on the cluster. it took 1h-2h.
+
+**Option 1**: taxa assignation on silvangs: https://ngs.arb-silva.de/silvangs/
+
+Create project and upload the .fasta file in the output of the obitool snakemake pipeline. And execute the project.
+
+**Option 2**: do it with dada2 package. Download reference taxa: https://benjjneb.github.io/dada2/training.html 
+
+I downloaded: silva_nr99_v138.1_train_set.fa.gz, then needs to be gzip on the cluster. 
+
+
+```{r}
+#don't run code: do on cluster !
+#I have taxa_assign.R script on the cluster (here also below) that I launch in a batch using a bash script (also on the server)
+library(metabaR)
+library(dada2)
+
+load("../resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata") # ITS 
+
+seqs<- natura_clean$motus$sequence
+taxa <- assignTaxonomy(seqs, "../resources/silva_nr99_v138.1_train_set.fa") #from SILVA to download the latest version. It may need some unzipping to have the .fasta format
+
+write.csv(taxa, "../results/taxa.16S.csv")
+```
+
 ```{r MetabarList, include=FALSE}
 #samples file preparation for the conversion
 file_samples <- read.delim2("E:/DRYER_natura_data/16S/ngs_filter_16S.tab", header = FALSE)
@@ -53,9 +78,7 @@ samples  <- file_samples %>%
   rename(info = V6) %>%
   relocate(sample_id, .before = project) %>%
   separate(info, into = c('Family', 'Genus', 'Species'), sep = ",") %>%
-  separate(Family, into = c('VX', 'Family'), sep = "=") %>%
-  separate(Species, into = c("Species", "VXX"), sep = ";")%>%
-    select(-tag, -primer_forward, -primer_reverse, -VX, -VXX)
+  dplyr::select(-tag, -primer_forward, -primer_reverse)
 
 
 samples <- samples %>% separate(sample_id, into = c("project", "s_project", "organ", "marker", "type", "code", "control_type"), sep = "_", remove = FALSE)
@@ -94,7 +117,7 @@ pcrs <- ngsfilter %>%
   mutate(control_type = ifelse(str_detect(type, 'sample'), NA,
                                ifelse(str_detect(sample_id, 'sterilisation'), 'sequencing',  #i put sequencing but it's actually sterilisation. just to make sure the metabarlist works
                                       ifelse(str_detect(sample_id, 'extraction'), 'extraction', 'pcr')))) %>%
-  select(sample_id, type, control_type)
+  dplyr::select(sample_id, type, control_type)
 
 pcrs$sample_id <- gsub("sample_", "", pcrs$sample_id)
 
@@ -114,13 +137,13 @@ rownames(pcrs) <- pcrs$sample_id
 #write.table(pcrs, file= "E:/DRYER_natura_data/16S/pcrs.txt", sep ="\t")
 
 #obifile
-file_obitab <- read.delim2("E:/DRYER_natura_data/16S/DRYER_natura_R1R2_good_demultiplexed_derepl_basicfilt_cl_agg_06042023.tab")
+file_obitab <- read.delim2("E:/DRYER_natura_data/16S/results_16S_09052023/DRYER_natura_R1R2_good_demultiplexed_derepl_basicfilt_cl_agg.tab")
 #colnames(file_obitab)
 colnames(file_obitab) <- gsub("sample.", "", colnames(file_obitab)) # remove the pattern 'sample.' from column names
 
 #read
 colnames(file_obitab)
-read <- file_obitab %>% select(c(1,20:184))
+read <- file_obitab %>% dplyr::select(c(1,20:184))
 read_t <- t(read[,-1])
 read_t <- as.data.frame(read_t)
 colnames(read_t) <- read$id
@@ -131,19 +154,16 @@ read_t <- as.matrix(read_t)
 motus <- file_obitab[, c(1,3,19,205)] #take the sequence column
 rownames(motus) <- motus$id
 
-#does not work
-assign <- read.csv("E:/DRYER_natura_data/16S/Assignation/assignation06042023_with_quality_score.csv", header = TRUE)
-assign <- assign %>% 
-  dplyr::select(-sequence,-ncbi) %>%
-  rename(id = cluster.acc)
-assign_motus <- left_join( motus, assign, by = "id") #on perd certain motus, non assignés.#dim 7473 au lieu de 7634
-assign_motus<- assign_motus %>% separate(path, into = c('domain','phylum', 'class', 'order'), sep = ";", FALSE)
-assign_motus<- assign_motus %>% mutate(taxo_long = paste0(phylum,"_", class, "_", order))
-assign_motus<- assign_motus %>% mutate(taxo_court = paste0(phylum,"_", class))
+assign <- read.csv("E:/Assignation/16S/taxa.16S.csv", header = TRUE)
+assign <- assign %>% rename(sequence= X)
+assign$sequence <- tolower(assign$sequence) #convert in lowercase letters
+assign_motus <- left_join(motus,assign, by= "sequence") 
+dim(assign_motus) 
+dim(motus) 
+dim(assign) 
 
-#with read.csv("E:/DRYER_natura_data/16S/Assignation/assignation06042023.csv", header = TRUE) #summary(assign_motus$base_pair) #mean 300, range (93-410)
-A <- unique(assign_motus$silva) #to know how many unique OTU I have #1239
 rownames(assign_motus) <- assign_motus$id
+
 
 #dimensions are not the same, so investigate missing controls
 read_t_essai <- as.data.frame(read_t)
@@ -163,8 +183,8 @@ samples <- samples %>% filter(sample_id != "DRYER_natura_NA_16S_control_extracti
 
 
 #Metabarlist
-MetabarList <- metabarlist_generator(reads = read_t , #165*7634 #not okay
-                                     motus = assign_motus, #7634*11 #ok
+MetabarList <- metabarlist_generator(reads = read_t , #165*11299
+                                     motus = assign_motus, #11299*4 #ok
                                      pcrs = pcrs,  #165*8 #ok
                                      samples = samples) #165*11
 ```
@@ -176,28 +196,28 @@ Basic stats on the raw data
 ```{r}
 # Compute the number of reads per pcr
 MetabarList$pcrs$nb_reads <- rowSums(MetabarList$reads)
-summary(MetabarList$pcrs$nb_reads) #il y en a que 1
-sum(MetabarList$pcrs$nb_reads) #2,032,280 de reads; mean: 12317
+summary(MetabarList$pcrs$nb_reads) #
+sum(MetabarList$pcrs$nb_reads) #2,032,202 de reads; mean: 12316
 Nbr_reads <- MetabarList$pcrs
 
 #total number of reads
-sum(Nbr_reads$nb_reads) #[1] 2032280
+sum(Nbr_reads$nb_reads) #[1] 2032202
 
 #number of reads for all samples, removing control
 Nbr_samples <-Nbr_reads %>% filter(type != "control") 
-sum(Nbr_samples$nb_reads) #[1] 1953583
+sum(Nbr_samples$nb_reads) #[1] 1953507
 
 #number of reads for the leaf & root
 leaf <- Nbr_samples %>% filter(organ != "leaf") 
-sum(leaf$nb_reads) #[1] 875699
+sum(leaf$nb_reads) #[1] 875676
 root <- Nbr_samples %>% filter(organ != "root") 
-sum(root$nb_reads) #[1] 1077884
+sum(root$nb_reads) #[1] 1077831
 
 #removing reads below 300 reads
 Nbr_samples <- Nbr_samples %>% filter(nb_reads > 300)
 summary(Nbr_samples$nb_reads)
    # Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-   # 2104   10101   12738   14800   17192   52730 
+   # 2104   10101   12738   14799   17188   52727 
   
 A <- ggplot(Nbr_reads, aes(x = nb_reads, fill = type))+
   geom_histogram() +
@@ -216,11 +236,11 @@ ggarrange(A, B, labels = c("nr_reads for all with controls" ,"nb_reads for sampl
 
 # Compute the number of motus per pcr
 MetabarList$pcrs$nb_motus <- rowSums(MetabarList$reads>0)
-summary(MetabarList$pcrs$nb_motus <181) #only 1 beneath 181 at 8.
+summary(MetabarList$pcrs$nb_motus <181) #20 beneath 181 
 #average: 584.4 per samples
 
-length(MetabarList$motus$sequence)
-# 7634 #nombre d'OTUs unique.
+length(unique(MetabarList$motus$sequence))
+# 11299 #nombre d'OTUs unique.
 
 # Create an input table (named check1) for ggplot of 3 columns: 
 #  (i) control type 
@@ -249,6 +269,20 @@ ggplot(MetabarList$pcrs, aes(x=nb_reads, y=nb_motus, color = control_type)) +
 summary_metabarlist(MetabarList)
 ```
 
+$dataset_dimension
+        n_row n_col
+reads     165 11299
+motus   11299    10
+pcrs      165    10
+samples   165    11
+
+$dataset_statistics
+        nb_reads nb_motus avg_reads sd_reads avg_motus
+pcrs     2032202    11299  12316.38 8407.892  641.1697
+samples  1953507    10843  14688.02 7534.524  744.2632
+        sd_motus
+pcrs    308.9424
+samples 221.7162
 
 # Rarefaction curves
 
@@ -285,17 +319,16 @@ natura <- contaslayer(MetabarList,
 
 table(natura$motus$not_a_sterilisation_conta)
 # FALSE  TRUE 
-#    62  7572 
+#   77  11222 
 
 # Identify the most common contaminant
 # get contaminant ids
-conta_sterilisation <- natura$motus$path[which(natura[["motus"]][["not_a_sterilisation_conta"]] == FALSE)]
+conta_sterilisation <- natura$motus$id[which(natura[["motus"]][["not_a_sterilisation_conta"]] == FALSE)]
 
 conta_sterilisation<- as.data.frame(conta_sterilisation)
-conta_sterilisation<- conta_sterilisation %>% separate(conta_sterilisation, into = c('domain','phylum', 'class', 'order', 'family', 'genus'), sep = ";", FALSE)
 
 conta_sterilisation <- conta_sterilisation %>% 
-  rename(path = conta_sterilisation)
+  rename(id = conta_sterilisation)
 
 conta_sterilisation <- left_join(conta_sterilisation, natura$motus)
 
@@ -324,19 +357,16 @@ natura <- contaslayer(natura,
 
 table(natura$motus$not_a_pcr_conta)
 # FALSE  TRUE 
-#   580  7054 
+#   777  10522 
 
 # Identify the most common contaminant
 # get contaminant ids
 
-conta_pcr <- natura$motus$path[which(natura[["motus"]][["not_a_pcr_conta"]] == FALSE)]
+conta_pcr <- natura$motus$id[which(natura[["motus"]][["not_a_pcr_conta"]] == FALSE)]
 conta_pcr <- as.data.frame(conta_pcr)
 
-
-conta_pcr<- conta_pcr %>% separate(conta_pcr, into = c('domain','phylum', 'class', 'order', 'family', 'genus'), sep = ";", FALSE)
-
 conta_pcr <- conta_pcr %>% 
-  rename(path = conta_pcr)
+  rename(id = conta_pcr)
 
 conta_pcr <- left_join(conta_pcr, natura$motus)
 
@@ -365,14 +395,13 @@ natura <- contaslayer(natura,
 table(natura$motus$not_an_extraction_conta)
 #> 
 #FALSE  TRUE 
- #  56  7578 
-conta_extraction <- natura$motus$path[which(natura[["motus"]][["not_an_extraction_conta"]] == FALSE)]
+ #  75  11224 
+conta_extraction <- natura$motus$id[which(natura[["motus"]][["not_an_extraction_conta"]] == FALSE)]
 conta_extraction <- as.data.frame(conta_extraction)
 
-conta_extraction<- conta_extraction %>% separate(conta_extraction, into = c('domain','phylum', 'class', 'order', 'family', 'genus'), sep = ";", FALSE)
 
 conta_extraction <- conta_extraction %>% 
-    rename(path = conta_extraction)
+    rename(id = conta_extraction)
 
 conta_extraction <- left_join(conta_extraction, natura$motus)
 
@@ -401,7 +430,7 @@ Overall, samples yield much less amounts of extraction contaminants than experim
 
 #to get the detail
 # natura$pcrs$low_contamination_level <-
-#   ifelse(a$conta.relab.sterilisation[match(rownames(natura$pcrs), rownames(a))]>1e-1,  1, 
+#   ifelse(a$conta.relab.sterilisation[match(rownames(natura$pcrs), rownames(a))]>1e-1,  1,
 #   ifelse(a$conta.relab.extraction[match(rownames(natura$pcrs), rownames(a))]>1e-1,  2,
 #   ifelse(a$conta.relab.pcr[match(rownames(natura$pcrs), rownames(a))]>1e-1, 3, 0)))
 
@@ -433,24 +462,24 @@ Since the dataset was obtained with primers that target 16S, other MOTUs should 
 
 ```{r}
 #Flag MOTUs corresponding to target (TRUE) vs. non-target (FALSE) taxa
-natura$motus$target_taxon <- grepl("Bacteria", natura$motus$path)
+natura$motus$target_taxon <- grepl("Bacteria", natura$motus$Kingdom)
 
 # Proportion of each of these over total number of MOTUs
 table(natura$motus$target_taxon) / nrow(natura$motus)
 
 #   FALSE       TRUE 
-# 0.02384071 0.97615929
-#ce sont des archées
+# 0.03699442 0.96300558 
+#ce sont des archées ou non assignation?
 
 # Intersection with extraction contaminant flags (not contaminant = T)
 table(natura$motus$target_taxon,
-      natura$motus$not_a_sterilisation_conta) #5 MOTUs as non-taget, which were already flagged as potential sterilisation conta
+      natura$motus$not_a_sterilisation_conta) #7 MOTUs as non-taget, which were already flagged as potential sterilisation conta
 
 table(natura$motus$target_taxon,
       natura$motus$not_an_extraction_conta) #4 MOTUs as non-taget, which were already flagged as potential ext conta
 
 table(natura$motus$target_taxon,
-      natura$motus$not_a_pcr_conta) #29 MOTUs as non-taget, which were already flagged as potential pcr conta
+      natura$motus$not_a_pcr_conta) #53 MOTUs as non-taget, which were already flagged as potential pcr conta
 ```
 
 Next, we want to identify MOTUs whose sequence is too dissimilar from references. This filtering criterion relies on the assumption that current reference databases capture most of the diversity at broad taxonomic levels (i.e. already have for example at least one representative of each phyla). Considering this, MOTUs being too distant from reference databases are more likely to be a degraded sequence, especially if such MOTUs are relatively numerous and of low abundance. To assess this, one can use the distribution of MOTU similarity scores, weighted and unweighted by their relative abundance.
@@ -559,14 +588,14 @@ prop.table(table(apply(motus.qual, 1, sum) > 0))
 
 # 
 #    FALSE     TRUE 
-# 0.889704 0.110296 
+# 0.5355341 0.4644659 
 
 # Corresponding proportion of artifactual reads (TRUE)
 #get the number of reads per motus
 natura$motus$count <- colSums(natura$reads>0)
 prop.table(xtabs(natura$motus$count~apply(motus.qual, 1, sum) > 0))
 #    FALSE      TRUE 
-# 0.9347926 0.0652074 
+# 0.5815413 0.4184587 
 
 # Proportion of MOTUs and reads potentially artifactual for each criterion
 apply(motus.qual, 2, sum) / nrow(motus.qual)
@@ -656,17 +685,20 @@ natura_clean <- subset_metabarlist(tmp_clean, "motus",
                                                  "not_a_pcr_conta", "not_a_sterilisation_conta")]) == 4)
 summary_metabarlist(natura_clean)
 # 
-# $dataset_dimension
+# dataset_dimension
 #         n_row n_col
-# reads     132  6792
-# motus    6792    18
+# reads     132  6051
+# motus    6051    14
 # pcrs      132    12
 # samples   132    11
 # 
 # $dataset_statistics
-#         nb_reads nb_motus avg_reads sd_reads avg_motus sd_motus
-# pcrs     1767613     6792  13391.01 7181.066  512.4924 149.7122
-# samples  1767613     6792  13391.01 7181.066  512.4924 149.7122
+#         nb_reads nb_motus avg_reads sd_reads avg_motus
+# pcrs     1460111     6051  11061.45 5746.018  408.4697
+# samples  1460111     6051  11061.45 5746.018  408.4697
+#         sd_motus
+# pcrs    121.7422
+# samples 121.7422
 
 
 #check if previsous subsetting lead to NAs
@@ -837,48 +869,532 @@ write.csv(root_metabar_clean$pcrs,"root_pcrs_without_contamiant.csv")
 write.csv(t(root_metabar_clean$pcrs),"root_transposed_pcrs_without_contamiant.csv")
 ```
 
-# Taxonomic composition -fail
+#stats
+```{r}
+# Compute the number of reads per pcr
+natura_clean$pcrs$nb_reads <- rowSums(natura_clean$reads)
+
+summary(natura_clean$pcrs$nb_reads) #
+sum(natura_clean$pcrs$nb_reads) #1,460,111 de reads; mean: 12316
+Nbr_reads <- natura_clean$pcrs
+
+#total number of reads
+sum(Nbr_reads$nb_reads) #[1]1460111
+
+#number of reads for all samples, removing control
+Nbr_samples <-Nbr_reads %>% filter(type != "control") 
+sum(Nbr_samples$nb_reads) #[1] 1460111
+
+#number of reads for the leaf & root
+leaf <- Nbr_samples %>% filter(organ != "leaf") 
+sum(leaf$nb_reads) #[1] 621044
+root <- Nbr_samples %>% filter(organ != "root") 
+sum(root$nb_reads) #[1]  839067
+
+#removing reads below 300 reads
+Nbr_samples <- Nbr_samples %>% filter(nb_reads > 300)
+summary(Nbr_samples$nb_reads)
+# Min. 1st Qu.  Median    Mean 3rd Qu. 
+# 993    7512    9998   11061   13518   37366 
+
+
+length(unique((natura_clean$motus$id))) #6051
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+length(unique((leaf$motus$id))) #3705
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+length(unique((root$motus$id))) # 4310
+
+
+```
+
 # Visualisation
 
 ## phylum
 ```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
 # Aggregate the metabarlist at the class level
-natura_clean_phy <-
-  aggregate_motus(natura_clean, groups= natura_clean$motus$phylum)
+leaf_phy <-  aggregate_motus(leaf, groups= leaf$motus$Phylum)
+
+leaf_phy$samples$Name <- paste0(substr(leaf_phy$samples$Genus, 1, 1), ".", " ", leaf_phy$samples$Species)
 
 # Aggregate per organ/genus
-tmp <-  melt(aggregate(natura_clean_phy$reads, by = list(
-    paste(natura_clean_phy$samples$organ,
-          natura_clean_phy$samples$name,
-          sep = " | ")), sum))
+tmp <-  melt(aggregate(leaf_phy$reads, by = list(
+    paste(leaf_phy$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+#                        Phylum   Value    Proportion
+# 
+# 1              Abditibacteriota    301  0.03587318
+# 2               Acidobacteriota  17541  2.09053627
+# 3              Actinobacteriota 433451 51.65868757
+# 4                    Aquificota     43  0.00512474
+# 5                Armatimonadota    347  0.04135546
+# 6                  Bacteroidota   8760  1.04401675
+# 7              Bdellovibrionota    476  0.05672968
+# 8              Campylobacterota      4  0.00047672
+# 9                   Chloroflexi  39991  4.76612714
+# 10         Coprothermobacterota      2  0.00023836
+# 11                Cyanobacteria   5082  0.60567273
+# 12                 Deinococcota   1420  0.16923559
+# 13                 Dependentiae     14  0.00166852
+# 14             Desulfobacterota     37  0.00440966
+# 15              Elusimicrobiota     42  0.00500556
+# 16                      FCPU426      6  0.00071508
+# 17               Fibrobacterota     23  0.00274114
+# 18                   Firmicutes  60983  7.26795357
+# 19               Fusobacteriota     59  0.00703162
+# 20              Gemmatimonadota   1077  0.12835685
+# 21             Latescibacterota      2  0.00023836
+# 22                       MBNT15      3  0.00035754
+# 23                  Myxococcota   6862  0.81781312
+# 24                           NA    344  0.04099792
+# 25                        NB1-j      2  0.00023836
+# 26                 Nitrospirota     34  0.00405212
+# 27              Patescibacteria    380  0.04528840
+# 28              Planctomycetota     12  0.00143016
+# 29               Proteobacteria 261032 31.10979219
+# 30                      RCP2-54     30  0.00357540
+# 31 SAR324 clade(Marine group B)     42  0.00500556
+# 32                Spirochaetota     61  0.00726998
+# 33                      Sva0485      2  0.00023836
+# 34                 Synergistota      4  0.00047672
+# 35                 Thermotogota     23  0.00274114
+# 36            Verrucomicrobiota    566  0.06745588
+# 37                        WPS-2      6  0.00071508
+# 38                 Zixibacteria      3  0.00035754
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Phylum2[which(tmp$Phylum2== "NA")] <- "unidentified"
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", 
+                     #"#FFE898", 
+                     "#C1A13E", 
+                     #"#5D641E",
+                     "#BAD0C4", #muco
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
 #plot phyla
-A <- ggplot(tmp, aes(x=Group.1, y=value, fill=variable)) +
-    geom_bar(stat="identity") +
-    labs(x=NULL, y="#reads", fill="Phyla") +
-    coord_flip() + theme_bw() +
-    theme(legend.position = "bottom") +
-    ggtitle("Bacteria - Phyla")
+A <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+A
 
-ggsave(filename = "Bacteria_bargraph.jpeg", plot = A, width = 10, height = 8)
+## root
 
-#organ
-tmp_organ <-  melt(aggregate(natura_clean_phy$reads, by = list(
-    natura_clean_phy$samples$organ), sum))
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
 
-B <- ggplot(tmp_organ, aes(x=Group.1, y=value, fill=variable)) +
-    geom_bar(stat="identity") +
-    labs(x=NULL, y="#reads", fill="Phyla") +
-    coord_flip() + theme_bw() +
-    theme(legend.position = "bottom") +
-    ggtitle("Bacteria")
-ggsave(filename = "Bacteria_organ_bargraph.jpeg", plot = B, width = 10, height = 8)
+# Aggregate the metabarlist at the class level
+root_phy <-  aggregate_motus(root, groups= root$motus$Phylum)
 
-#proteobacterie
+root_phy$samples$Name <- paste0(substr(root_phy$samples$Genus, 1, 1), ".", " ", root_phy$samples$Species)
 
-#firmicutes
+# Aggregate per organ/genus
+tmp_root <-  melt(aggregate(root_phy$reads, by = list(
+    paste(root_phy$samples$Name)), sum))
 
+colnames(tmp_root) <- c("Name", "Phylum", "Value")
+
+# Calculate the total abundance per phylum
+phylum_abundance <- aggregate(Value ~ Phylum, data = tmp_root, sum)
+options(scipen = 999)
+total_sum <- sum(phylum_abundance$Value)
+phylum_proportions <- phylum_abundance %>% mutate(Proportion = Value / total_sum *100)
+phylum_proportions
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(phylum_abundance$Phylum[order(phylum_abundance$Value, decreasing = TRUE)],6)
+
+# Classify other phyla as 'Others'
+tmp_root <- tmp_root %>%
+  mutate(Phylum2 = ifelse(Phylum %in% top_phyla, paste0(Phylum), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp_root %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp_root <- merge(tmp_root, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp_root$RelativeAbundance <- tmp_root$Value / tmp_root$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp_root <- tmp_root %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+# Define the manual colors for six levels
+custom_colors13 <- c("#774C22", "#965326", #acido et actino
+                     #"#C1A13E", 
+                     "#5D641E", #myxo
+                     "#BAD0C4", #chloroflexi
+                     "#7CAED1", "#98D3F1", #fimicutes, others
+                    #"#DEC769",
+                    "#EFEFBB",  #proteo
+                    "#FFD34C")
+#custom_colors6 <- c("#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818")
+
+tmp_root$Phylum2[which(tmp_root$Phylum2== "NA")] <- "unidentified"
+
+#convert 'position' to factor and specify level order
+tmp_root$Phylum2 <- factor(tmp_root$Phylum2 , levels=c('Acidobacteriota', 'Actinobacteriota', 'Myxococcota', 'Chloroflexi', 'Firmicutes', 'Others', 'Proteobacteria'))
+
+#plot phyla
+B <- tmp_root %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Phylum2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Phylum") +
+    scale_fill_manual(values= custom_colors13) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp_root$Name))))+
+    theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+B
+
+phylum <- ggarrange(A, B, ncol = 1, nrow = 2)
+phylum
+ggsave("./results/phylum_bacteria.jpeg", phylum, width = 7, height = 6)
+```
+
+
+## Order
+```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+#leaf$motus$Phylum_Class_Order <- paste0(leaf$motus$Phylum, ";", " ", leaf$motus$Class, ";", " ",leaf$motus$Order)
+
+leaf$motus$Order <- paste0("o__",leaf$motus$Order)
+
+# Aggregate the metabarlist at the class level
+#leaf_order <-  aggregate_motus(leaf, groups= leaf$motus$Phylum_Class_Order)
+leaf_order <-  aggregate_motus(leaf, groups= leaf$motus$Order)
+leaf_order$samples$Species <- str_sub(leaf_order$samples$Species,1,-2)
+leaf_order$samples$Name <- paste0(substr(leaf_order$samples$Genus, 1, 1), ".", " ", leaf_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_order$reads, by = list(
+    paste(leaf_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+                                                    Order  Value Proportion
+1     Actinobacteriota; Actinobacteria; Corynebacteriales 147742  17.607891
+2        Proteobacteria; Alphaproteobacteria; Rhizobiales 133217  15.876801
+3            Actinobacteriota; Actinobacteria; Frankiales  79153   9.433454
+4  Actinobacteriota; Thermoleophilia; Solirubrobacterales  55864   6.657871
+5     Actinobacteriota; Actinobacteria; Pseudonocardiales  50485   6.016802
+6     Actinobacteriota; Actinobacteria; Micromonosporales  47323   5.639955
+7      Proteobacteria; Alphaproteobacteria; Rickettsiales  37717   4.495112
+8    Proteobacteria; Gammaproteobacteria; Burkholderiales  36873   4.394524
+9               Chloroflexi; Chloroflexia; Chloroflexales  27723   3.304027
+10                        Firmicutes; Bacilli; Bacillales  24773   2.952446
+
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "o__NA")] <- "unidentified"
+
+#cool function to make names pretty
+simplify_A <- function(value) {
+  if (value == "Others") {
+    return("Others")
+  } else {
+    simplified <- sub("^.*?o__(\\w+).*?$", "o__\\1", value)
+    ifelse(grepl("NA", simplified), sub("; NA.*?$", "; unknown", simplified), simplified)
+  }
+}
+
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+# Define the manual colors for six levels
+custom_colors23<- c("#774C22", "#965326", 
+                     "#FFE898", 
+                     "#C1A13E", 
+                     "#5D641E",
+                     "#BAD0C4",
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C",
+                     "#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818","#F67E13", "#BC3853", "#F3E762", "#64146E", "#A36A69", "#fc03ec", "#a81513") 
+
+#plot phyla
+E <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors23) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+E
+
+## root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#root$motus$Phylum_Class_Order <- paste0(root$motus$Phylum, ";", " ", root$motus$Class, ";", " ",root$motus$Order)
+
+root$motus$Order <- paste0("o__",root$motus$Order)
+
+# Aggregate the metabarlist at the class level
+root_order <-  aggregate_motus(root, groups= root$motus$Order)
+root_order$samples$Species <- str_sub(root_order$samples$Species,1,-2)
+root_order$samples$Name <- paste0(substr(root_order$samples$Genus, 1, 1), ".", " ", root_order$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(root_order$reads, by = list(
+    paste(root_order$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Order", "Value")
+
+# Calculate the total abundance per Class
+Order_abundance <- aggregate(Value ~ Order, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Order_abundance$Value)
+Order_proportions <- Order_abundance %>% mutate(Proportion = Value / total_sum *100)
+Order_proportions
+
+top_10_proportions <- Order_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+   Order  Value Proportion
+1           o__Frankiales 169232  27.249599
+2          o__Rhizobiales  78283  12.605065
+3           o__Bacillales  48140   7.751464
+4  o__Solirubrobacterales  36430   5.865929
+5      o__Burkholderiales  34908   5.620858
+6         o__Polyangiales  30176   4.858915
+7    o__Corynebacteriales  23685   3.813739
+8        o__Rickettsiales  17772   2.861633
+9                   o__NA  16771   2.700453
+10     o__Lactobacillales  12950   2.085198
+
+# Sort the data by the total abundance in descending order
+top_phyla <- head(Order_abundance$Order[order(Order_abundance$Value, decreasing = TRUE)],20)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Order2 = ifelse(Order %in% top_phyla, paste0(Order), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Order2[which(tmp$Order== "o__NA")] <- "unidentified"
+
+# Apply the function to create column B
+tmp$Order3 <- sapply(tmp$Order2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+
+tmp <- tmp %>%
+  dplyr::select(-Order)%>%
+  rename(Order = Order3)
+#plot phyla
+F <- tmp  %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+    scale_fill_manual(values= custom_colors20) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+F
+
+Order <- ggarrange(E, F, ncol = 1, nrow = 2)
+
+ggsave("./results/Order_bacteria.jpeg", Order, width = 8, height = 10)
+```
+
+## Common genus
+```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+
+natura_clean$motus$Genus <- paste0("g__",natura_clean$motus$Genus)
+
+# Aggregate the metabarlist at the class level
+#natura_clean_Genus <-  aggregate_motus(natura_clean, groups= natura_clean$motus$Phylum_Class_Genus)
+natura_clean_Genus <-  aggregate_motus(natura_clean, groups= natura_clean$motus$Genus)
+natura_clean_Genus$samples$Species <- str_sub(natura_clean_Genus$samples$Species,1,-2)
+natura_clean_Genus$samples$Name <- paste0(substr(natura_clean_Genus$samples$Genus, 1, 1), ".", " ", natura_clean_Genus$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(natura_clean_Genus$reads, by = list(
+    paste(natura_clean_Genus$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Genus", "Value")
+
+# Calculate the total abundance per Class
+Genus_abundance <- aggregate(Value ~ Genus, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Genus_abundance$Value)
+Genus_proportions <- Genus_abundance %>% mutate(Proportion = Value / total_sum *100)
+
+
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+#leaf$motus$Phylum_Class_Order <- paste0(leaf$motus$Phylum, ";", " ", leaf$motus$Class, ";", " ",leaf$motus$Order)
+
+leaf$motus$Genus <- paste0("g__",leaf$motus$Genus)
+
+# Aggregate the metabarlist at the class level
+#leaf_Genus <-  aggregate_motus(leaf, groups= leaf$motus$Phylum_Class_Genus)
+leaf_Genus <-  aggregate_motus(leaf, groups= leaf$motus$Genus)
+leaf_Genus$samples$Species <- str_sub(leaf_Genus$samples$Species,1,-2)
+leaf_Genus$samples$Name <- paste0(substr(leaf_Genus$samples$Genus, 1, 1), ".", " ", leaf_Genus$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_Genus$reads, by = list(
+    paste(leaf_Genus$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Genus", "Value")
+
+# Calculate the total abundance per Class
+Genus_abundance <- aggregate(Value ~ Genus, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Genus_abundance$Value)
+Genus_proportions <- Genus_abundance %>% mutate(Proportion = Value / total_sum *100)
+
+## root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+#root$motus$Phylum_Class_Genus <- paste0(root$motus$Phylum, ";", " ", root$motus$Class, ";", " ",root$motus$Genus)
+
+root$motus$Genus <- paste0("o__",root$motus$Genus)
+
+# Aggregate the metabarlist at the class level
+root_Genus <-  aggregate_motus(root, groups= root$motus$Genus)
+root_Genus$samples$Species <- str_sub(root_Genus$samples$Species,1,-2)
+root_Genus$samples$Name <- paste0(substr(root_Genus$samples$Genus, 1, 1), ".", " ", root_Genus$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(root_Genus$reads, by = list(
+    paste(root_Genus$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Genus", "Value")
+
+# Calculate the total abundance per Class
+Genus_abundance <- aggregate(Value ~ Genus, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Genus_abundance$Value)
+Genus_proportions <- Genus_abundance %>% mutate(Proportion = Value / total_sum *100)
+Genus_proportions
 
 ```
+
 
 #Add leaf traits
 ```{r}
@@ -903,6 +1419,12 @@ save(natura_clean, file = "./results/Metabarlist_natura_clean_16S_traits.Rdata")
 #get final summary
 ```{r}
 
+##
+###ESSAI
+pseq$samples$nb_motus <- rowSums(pseq$reads>0) #get number of OTUs per sample
+
+leaf3<- melt(pseq$samples,id = c("name", "nb_motus"))
+##
 
 #LEAF
 load("./results/Metabarlist_natura_clean_16S_leaf.Rdata")

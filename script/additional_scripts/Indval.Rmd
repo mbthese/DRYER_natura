@@ -1,0 +1,1156 @@
+---
+title: "Indval"
+author: "Marion Boisseaux"
+date: "2023-05-16"
+output: html_document
+---
+We can visualise relationships between species and environmental variables by looking at ordinations, but it may be useful to identify species that are significantly associated with particular environmental variables. This can be done through Indicator Species analysis using functions in the labdsv library or the indicspecies library. Below we show examples using the indval function from the labdsv library.
+
+
+# Specific bacteria within leaves and roots
+```{r}
+
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+
+#site data
+TITenv <- leaf$samples # get leaf data of samples for which i have the community
+names(leaf$samples)
+TITenv <- leaf$samples %>% dplyr::select(sample_id, name, LSWC, SLA, TLP, MajVLA, LT, SRL, RootShoot, StemDiameter, Height, LA_rwc, gmin)
+TITenv$name <- as.factor(TITenv$name)
+TITenv$name  <- unclass(TITenv$name)
+
+#species data
+TITcom <- leaf$reads # get my 16s community
+TITcom <- TITcom[,colSums(TITcom != 0)>=3] # remove otus present in less than three samples, don't have 
+TITcom <- TITcom[,colSums(TITcom)>100] # keep otus with more than 100 reads, don't have
+#rownames(TITcom) <- as.numeric(gsub("_.+$","",rownames(TITcom))) # rename rows as numbers
+TITcom <- as.data.frame(TITcom)
+TITcom$sample_id <- rownames(TITcom)
+
+TITcom <- left_join(TITcom, TITenv %>% dplyr::select(sample_id, name), by = "sample_id")
+names(TITcom)
+TITcom <- TITcom %>% dplyr::select(-sample_id)
+
+dim(TITcom);dim(TITenv) # check that dims are compatible
+# [1]  69 489
+# [1] 69 13
+clust <- cut(TITenv$name,7,labels=FALSE) #has to be numeric that's why convert before into 7 numbers
+summary(indval(TITcom,clust))
+
+iva <- indval(TITcom,clust)
+summary(iva)
+names(iva)
+
+# calculate adjusted P-values for each species and show significant species
+gr <- iva$maxcls[iva$pval<=0.05] # maxcls the class each species has maximum indicator value for
+iv <- iva$indcls[iva$pval<=0.05] #the indicator value for each species to its maximum class
+pv <- iva$pval[iva$pval<=0.05]
+fr <- apply(TITcom%>% dplyr::select(-name), 2, sum)[iva$pval<=0.05]
+indvalsummary <- data.frame(group=gr, indval=iv, pvalue=pv, freq=fr) # group is the 'host seedling'
+indvalsummary <- indvalsummary[order(indvalsummary$group, -indvalsummary$indval),] #	the probability of obtaining as high an indicator values as observed over the specified iterations
+
+specific_bacteria_leaf <- indvalsummary
+
+#root
+
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+
+#site data
+TITenv <- root$samples # get root data of samples for which i have the community
+names(root$samples)
+TITenv <- root$samples %>% dplyr::select(sample_id, name, LSWC, SLA, TLP, MajVLA, LT, SRL, RootShoot, StemDiameter, Height, LA_rwc, gmin)
+TITenv$name <- as.factor(TITenv$name)
+TITenv$name  <- unclass(TITenv$name)
+
+#species data
+TITcom <- root$reads # get my 16s community
+TITcom <- TITcom[,colSums(TITcom != 0)>=3] # remove otus present in less than three samples, don't have 
+TITcom <- TITcom[,colSums(TITcom)>100] # keep otus with more than 100 reads, don't have
+#rownames(TITcom) <- as.numeric(gsub("_.+$","",rownames(TITcom))) # rename rows as numbers
+TITcom <- as.data.frame(TITcom)
+TITcom$sample_id <- rownames(TITcom)
+
+TITcom <- left_join(TITcom, TITenv %>% dplyr::select(sample_id, name), by = "sample_id")
+names(TITcom)
+TITcom <- TITcom %>% dplyr::select(-sample_id)
+
+dim(TITcom);dim(TITenv) # check that dims are compatible
+# [1]  69 489
+# [1] 69 13
+clust <- cut(TITenv$name,7,labels=FALSE) #has to be numeric that's why convert before into 7 numbers
+summary(indval(TITcom,clust))
+
+iva <- indval(TITcom,clust)
+summary(iva)
+names(iva)
+
+# calculate adjusted P-values for each species and show significant species
+gr <- iva$maxcls[iva$pval<=0.05] # maxcls the class each species has maximum indicator value for
+iv <- iva$indcls[iva$pval<=0.05] #the indicator value for each species to its maximum class
+pv <- iva$pval[iva$pval<=0.05]
+fr <- apply(TITcom%>% dplyr::select(-name), 2, sum)[iva$pval<=0.05]
+indvalsummary_root <- data.frame(group=gr, indval=iv, pvalue=pv, freq=fr) # group is the 'host seedling'
+indvalsummary_root <- indvalsummary_root[order(indvalsummary_root$group, -indvalsummary_root$indval),] #	the probability of obtaining as high an indicator values as observed over the specified iterations
+
+
+specific_bacteria_root <- indvalsummary_root
+
+```
+
+*Pour le 16S - feuilles: *
+
+Sum of probabilities                 =  186.365 
+
+Sum of Indicator Values              =  116.94 
+
+Sum of Significant Indicator Values  =  36.7 
+
+Number of Significant Indicators     =  99 
+
+Significant Indicator Distribution
+
+ 1  2  3  5  6  7 
+ 1  1 15  1  1 80 
+
+Ca c'est l'effet plante hote dans les feuilles, c'est les taxons systématiquement associé à chacune des espèces.
+mais on souahite avoir les taxons systématiquement présents partout.
+
+
+*POur les 16S - root*
+
+Sum of probabilities                 =  83.382 
+
+Sum of Indicator Values              =  108.68 
+
+Sum of Significant Indicator Values  =  50.24 
+
+Number of Significant Indicators     =  127 
+
+Significant Indicator Distribution
+
+ 1  3  4  5  6  7 
+10 35 12 17 36 17 
+
+bcp plus de taxons spécifiques au niveau des racines
+
+On plot les résultats
+```{r}
+#leaf
+specific_bacteria_leaf <- specific_bacteria_leaf %>% mutate(name = dplyr::recode(group, "1" = "E. falcata", "2" = 'I. hostmannii', "3" = 'J. copaia', "4" = 'P. officinalis', "5" = 'S. globulifera', "6" ='T. melinonii', "7" = 'V. surinamensis'))
+
+specific_bacteria_leaf_plot <- specific_bacteria_leaf %>% 
+  ggplot() +
+  aes(x = name, y = indval, color= name) +
+  geom_point(size = 3) +
+  ylab("Number of significant indicator bacteria")+
+  xlab("")+
+  ggtitle("Threshold indval >0.25 p-value < 0.05")+
+  theme_minimal(base_size = 16)+
+ # theme(axis.text.x = element_text(face = "italic"))+
+  theme(axis.text.x = element_blank(), legend.text = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species")
+ 
+
+specific_bacteria_leaf_plot 
+
+#root
+specific_bacteria_root <- specific_bacteria_root %>% mutate(name = dplyr::recode(group, "1" = "E. falcata", "2" = 'I. hostmannii', "3" = 'J. copaia', "4" = 'P. officinalis', "5" = 'S. globulifera', "6" ='T. melinonii', "7" = 'V. surinamensis'))
+
+
+specific_bacteria_root_plot <- specific_bacteria_root %>% 
+  group_by(name) %>%
+  count() %>%
+  ggplot()+
+ aes(x = name, y = n, color= name) +
+  geom_point(size = 3) +
+  ylab("Number of significant indicator bacteria")+
+  xlab("")+
+  theme_minimal(base_size = 16)+
+ # theme(axis.text.x = element_text(face = "italic"))+
+  theme(axis.text.x = element_blank(), legend.text = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species")
+specific_bacteria_root_plot
+
+Bacteria_indval_plot <- ggarrange(specific_bacteria_leaf_plot, specific_bacteria_root_plot, labels = c("Leaf", "Root"), common.legend = TRUE, legend = "none")
+```
+
+
+
+# Specific fungi within leaves and roots
+```{r}
+
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+
+#site data
+TITenv <- leaf$samples # get leaf data of samples for which i have the community
+names(leaf$samples)
+TITenv <- leaf$samples %>% dplyr::select(sample_id, name, LSWC, SLA, TLP, MajVLA, LT, SRL, RootShoot, StemDiameter, Height, LA_rwc, gmin)
+TITenv$name <- as.factor(TITenv$name)
+TITenv$name  <- unclass(TITenv$name)
+
+#species data
+TITcom <- leaf$reads # get my 16s community
+TITcom <- TITcom[,colSums(TITcom != 0)>=3] # remove otus present in less than three samples, don't have 
+TITcom <- TITcom[,colSums(TITcom)>100] # keep otus with more than 100 reads, don't have
+#rownames(TITcom) <- as.numeric(gsub("_.+$","",rownames(TITcom))) # rename rows as numbers
+TITcom <- as.data.frame(TITcom)
+TITcom$sample_id <- rownames(TITcom)
+
+TITcom <- left_join(TITcom, TITenv %>% dplyr::select(sample_id, name), by = "sample_id")
+names(TITcom)
+TITcom <- TITcom %>% dplyr::select(-sample_id)
+
+dim(TITcom);dim(TITenv) # check that dims are compatible
+# [1]  69 489
+# [1] 69 13
+clust <- cut(TITenv$name,7,labels=FALSE) #has to be numeric that's why convert before into 7 numbers
+summary(indval(TITcom,clust))
+
+iva <- indval(TITcom,clust)
+summary(iva)
+names(iva)
+
+# calculate adjusted P-values for each species and show significant species
+gr <- iva$maxcls[iva$pval<=0.05] # maxcls the class each species has maximum indicator value for
+iv <- iva$indcls[iva$pval<=0.05] #the indicator value for each species to its maximum class
+pv <- iva$pval[iva$pval<=0.05]
+fr <- apply(TITcom%>% dplyr::select(-name), 2, sum)[iva$pval<=0.05]
+indvalsummary <- data.frame(group=gr, indval=iv, pvalue=pv, freq=fr) # group is the 'host seedling'
+indvalsummary <- indvalsummary[order(indvalsummary$group, -indvalsummary$indval),] #	the probability of obtaining as high an indicator values as observed over the specified iterations
+
+View(indvalsummary)
+
+specific_fungi_leaf <- indvalsummary
+
+#root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+
+#site data
+TITenv <- root$samples # get root data of samples for which i have the community
+names(root$samples)
+TITenv <- root$samples %>% dplyr::select(sample_id, name, LSWC, SLA, TLP, MajVLA, LT, SRL, RootShoot, StemDiameter, Height, LA_rwc, gmin)
+TITenv$name <- as.factor(TITenv$name)
+TITenv$name  <- unclass(TITenv$name)
+
+#species data
+TITcom <- root$reads # get my 16s community
+TITcom <- TITcom[,colSums(TITcom != 0)>=3] # remove otus present in less than three samples, don't have 
+TITcom <- TITcom[,colSums(TITcom)>100] # keep otus with more than 100 reads, don't have
+#rownames(TITcom) <- as.numeric(gsub("_.+$","",rownames(TITcom))) # rename rows as numbers
+TITcom <- as.data.frame(TITcom)
+TITcom$sample_id <- rownames(TITcom)
+
+TITcom <- left_join(TITcom, TITenv %>% dplyr::select(sample_id, name), by = "sample_id")
+names(TITcom)
+TITcom <- TITcom %>% dplyr::select(-sample_id)
+
+dim(TITcom);dim(TITenv) # check that dims are compatible
+# [1]  69 489
+# [1] 69 13
+clust <- cut(TITenv$name,7,labels=FALSE) #has to be numeric that's why convert before into 7 numbers
+summary(indval(TITcom,clust))
+
+iva <- indval(TITcom,clust)
+summary(iva)
+names(iva)
+
+# calculate adjusted P-values for each species and show significant species
+gr <- iva$maxcls[iva$pval<=0.05] # maxcls the class each species has maximum indicator value for
+iv <- iva$indcls[iva$pval<=0.05] #the indicator value for each species to its maximum class
+pv <- iva$pval[iva$pval<=0.05]
+fr <- apply(TITcom%>% dplyr::select(-name), 2, sum)[iva$pval<=0.05]
+indvalsummary_root <- data.frame(group=gr, indval=iv, pvalue=pv, freq=fr) # group is the 'host seedling'
+indvalsummary_root <- indvalsummary_root[order(indvalsummary_root$group, -indvalsummary_root$indval),] #	the probability of obtaining as high an indicator values as observed over the specified iterations
+
+View(indvalsummary)
+
+specific_fungi_root <- indvalsummary_root
+
+```
+
+
+On plot les résultats
+```{r}
+#leaf
+specific_fungi_leaf <- specific_fungi_leaf %>% mutate(name = dplyr::recode(group, "1" = "E. falcata", "2" = 'I. hostmannii', "3" = 'J. copaia', "4" = 'P. officinalis', "5" = 'S. globulifera', "6" ='T. melinonii', "7" = 'V. surinamensis'))
+
+specific_fungi_leaf_plot <- specific_fungi_leaf %>% 
+  group_by(name) %>%
+  count() %>%
+  ggplot() +
+  aes(x = name, y = n, color= name) +
+  geom_point(size = 3) +
+  ylab("Number of significant indicator fungi")+
+  xlab("")+
+  theme_minimal(base_size = 16)+
+ # theme(axis.text.x = element_text(face = "italic"))+
+  theme(axis.text.x = element_blank(), legend.text = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species")
+ 
+specific_fungi_leaf_plot 
+
+#root
+specific_fungi_root <- specific_fungi_root %>% mutate(name = dplyr::recode(group, "1" = "E. falcata", "2" = 'I. hostmannii', "3" = 'J. copaia', "4" = 'P. officinalis', "5" = 'S. globulifera', "6" ='T. melinonii', "7" = 'V. surinamensis'))
+
+
+specific_fungi_root_plot <- specific_fungi_root %>% 
+  group_by(name) %>%
+  count() %>%
+  ggplot()+
+ aes(x = name, y = n, color= name) +
+  geom_point(size = 3) +
+  ylab("Number of significant indicator fungi")+
+  xlab("")+
+  theme_minimal(base_size = 16)+
+ # theme(axis.text.x = element_text(face = "italic"))+
+  theme(axis.text.x = element_blank(), legend.text = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species")
+specific_fungi_root_plot
+
+fungi_indval_plot <- ggarrange(specific_fungi_leaf_plot, specific_fungi_root_plot, labels = c("Leaf", "Root"), common.legend = TRUE, legend = "bottom")
+```
+
+
+#plot both results
+```{r}
+All_indval_plot <- ggarrange(Bacteria_indval_plot, fungi_indval_plot, nrow = 2, common.legend = TRUE, legend = "bottom", )
+All_indval_plot
+```
+
+#retrieve only indval > 0.6
+##bacteria
+```{r}
+
+# leaf
+
+specific_bacteria_leaf_0.6 <- specific_bacteria_leaf %>% filter(indval> 0.6)
+specific_bacteria_leaf_0.6$OTU <- rownames(specific_bacteria_leaf_0.6)
+
+#associate taxonomy
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+specific_bacteria_leaf_0.6<- left_join(specific_bacteria_leaf_0.6, taxo)
+specific_bacteria_leaf_0.6 <- specific_bacteria_leaf_0.6 %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE) 
+specific_bacteria_leaf_0.6$organ <- "leaf"
+
+
+# root
+specific_bacteria_root_0.6 <- specific_bacteria_root %>% filter(indval> 0.6)
+specific_bacteria_root_0.6$OTU <- rownames(specific_bacteria_root_0.6)
+
+#associate taxonomy
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+specific_bacteria_root_0.6<- left_join(specific_bacteria_root_0.6, taxo)
+specific_bacteria_root_0.6 <- specific_bacteria_root_0.6 %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE) 
+specific_bacteria_root_0.6$organ <- "root"
+
+#combine for plot
+Bacteria_indval <- rbind(specific_bacteria_leaf_0.6, specific_bacteria_root_0.6)
+
+Bacteria_indval <- Bacteria_indval %>% mutate(Fam_genus = paste0(Family, "/", Genus))
+
+#stay logic with same color code
+group_colors <- c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")
+#adapt to the 3 species
+group_colors_for_plot <- c("#53B400", "#A58AFF", "#FB61D7")
+
+Bacteria_indval_plot2 <- Bacteria_indval %>% 
+  ggplot()+
+ aes(x = indval, y = Fam_genus, shape= organ, color = name) +
+  geom_point(size = 5, stroke= 2 ) +
+ scale_shape_manual(values = c(1, 4))+
+  ylab("")+
+  xlab("Indicator value")+
+  theme_minimal(base_size = 16)+
+  theme(axis.text.y = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species" , type = group_colors_for_plot)+
+  ggtitle(label = "Indicator bacteria")+
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 10)) #Wrap Long Axis Labels 
+Bacteria_indval_plot2
+
+```
+
+##fungi
+```{r}
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+# leaf
+
+specific_fungi_leaf_0.6 <- specific_fungi_leaf %>% filter(indval> 0.6)
+specific_fungi_leaf_0.6$OTU <- rownames(specific_fungi_leaf_0.6)
+
+#associate taxonomy
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+specific_fungi_leaf_0.6<- left_join(specific_fungi_leaf_0.6, taxo)
+specific_fungi_leaf_0.6 <- specific_fungi_leaf_0.6 %>% separate(path, into = c("PlantOrgan","Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = "100 %", remove = FALSE) 
+specific_fungi_leaf_0.6$organ <- "leaf"
+
+
+# root
+specific_fungi_root_0.6 <- specific_fungi_root %>% filter(indval> 0.6)
+specific_fungi_root_0.6$OTU <- rownames(specific_fungi_root_0.6)
+
+#associate taxonomy
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+specific_fungi_root_0.6<- left_join(specific_fungi_root_0.6, taxo)
+specific_fungi_root_0.6 <- specific_fungi_root_0.6 %>% separate(path, into = c("PlantOrgan", "Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = "100 %", remove = FALSE) 
+specific_fungi_root_0.6$organ <- "root"
+
+#combine for plot
+fungi_indval <- rbind(specific_fungi_leaf_0.6, specific_fungi_root_0.6)
+fungi_indval <- fungi_indval %>% mutate_all(sub, pattern = ';', replacement = '')
+fungi_indval <- fungi_indval %>% mutate_all(sub, pattern = ';', replacement = '') #il faut le faire en 2 temps
+
+#clean table 	
+fungi_indval[5,14] <- "Malasseziaceae"
+fungi_indval[3,12] <- "Sordariomycetes"
+fungi_indval[3,13] <- "Sordariomycetes/unidentified"
+fungi_indval <- fungi_indval %>% mutate(Phy_order = paste0(Phylum, "/", Order))
+
+#stay logic with same color code
+group_colors <- c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")
+#adapt to the 3 species
+group_colors_for_plot_fungi <- c( "#00B6EB", "#A58AFF", "#FB61D7")
+fungi_indval$indval <- round(as.numeric(fungi_indval$indval), digits = 2)
+
+fungi_indval_plot2 <- fungi_indval %>% 
+  ggplot()+
+ aes(x = indval, y = Phy_order, shape= organ, color = name) +
+  geom_point(size = 5, stroke= 2 ) +
+ scale_shape_manual(values = c(1, 4))+
+  ylab("")+
+  xlab("Indicator value")+
+  theme_minimal(base_size = 16)+
+  theme(axis.text.y = element_text(face = "italic"))+
+  scale_color_discrete(name = "Host plant species" , type = group_colors_for_plot_fungi)+
+  ggtitle(label = "Indicator fungi")+
+  scale_y_discrete(labels = function(x) str_wrap(x, width = 10)) #Wrap Long Axis Labels 
+  #xlim(0.6,0.8)
+  fungi_indval_plot2
+
+```
+
+
+#Venn diagram
+```{r}
+#library(eulerr)
+library(microbiome)
+#devtools::install_github('microsud/microbiomeutilities')
+library(microbiomeutilities)
+library(metabaR)
+#install.packages("ggpolypath")   # Install ggpolypath package
+library("ggpolypath")  
+library(venn)
+```
+
+##leaf bacteria
+```{r}
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+pseq <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# simple way to count number of samples in each group
+tmp <-  melt(aggregate(pseq$reads, by = list(pseq$samples$name), sum))
+colnames(tmp) <- c("Species", "OTU", "Nb_reads")
+tmp <- tmp %>%
+  filter(Nb_reads != 0)
+
+# Convert metabarlists to lists
+EF <- tmp %>% filter(tmp$Species == "Eperua_falcata")
+EF$OTU <- as.character(EF$OTU)
+EF <- as.list(EF[,2])
+
+IH <- tmp %>% filter(Species == "Iryanthera_hostmannii")
+IH$OTU <- as.character(IH$OTU)
+IH <- as.list(IH[,2])
+
+
+JC <- tmp %>% filter(Species == "Jacaranda_copaia")
+JC$OTU <- as.character(JC$OTU)
+JC <- as.list(JC[,2])
+
+PO <- tmp %>% filter(Species == "Pterocarpus_officinalis")
+PO$OTU <- as.character(PO$OTU)
+PO <- as.list(PO[,2])
+
+
+SG <- tmp %>% filter(Species == "Symphonia_globulifera")
+SG$OTU <- as.character(SG$OTU)
+SG <- as.list(SG[,2])
+
+TM <- tmp %>% filter(Species == "Tachigali_melinonii")
+TM$OTU <- as.character(TM$OTU)
+TM <- as.list(TM[,2])
+
+VS <- tmp %>% filter(Species == "Virola_surinamensis")
+VS$OTU <- as.character(VS$OTU)
+VS <- as.list(VS[,2])
+
+# Create a Venn diagram using lists
+
+x = list(EF, IH,JC, PO, SG, TM, VS)
+y = list(EF, IH,JC, PO, SG, TM, VS)
+
+group_colors <- c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")
+venn(x, snames = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis"))
+
+# get specific intersections
+my_venn <- venn(y)
+a<-attr(x = my_venn, "intersections")
+
+#per species
+leaf_bac_ef <-  as.data.frame(t(as.data.frame(a$`A`))) %>% rename("OTU" = "V1")
+leaf_bac_ih <-  as.data.frame(t(as.data.frame(a$`B`))) %>% rename("OTU" = "V1")
+leaf_bac_jc <-  as.data.frame(t(as.data.frame(a$`C`))) %>% rename("OTU" = "V1")
+leaf_bac_po <-  as.data.frame(t(as.data.frame(a$`D`))) %>% rename("OTU" = "V1")
+leaf_bac_sg <-  as.data.frame(t(as.data.frame(a$`E`))) %>% rename("OTU" = "V1")
+leaf_bac_tm <-  as.data.frame(t(as.data.frame(a$`F`))) %>% rename("OTU" = "V1")
+leaf_bac_vs <-  as.data.frame(t(as.data.frame(a$`G`))) %>% rename("OTU" = "V1")
+
+#core leaf bacteria
+core_leaf_bacteria <- as.data.frame(t(as.data.frame(a$`A:B:C:D:E:F:G`))) %>% rename("OTU" = "V1")
+
+#associate taxo to core microbiota
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+shared_bacteria_leaf<- left_join(core_leaf_bacteria, taxo)
+shared_bacteria_leaf<- shared_bacteria_leaf %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE) 
+shared_bacteria_leaf$organ <- "leaf"
+
+#plot core leaf bacteria taxa
+plot_data <- shared_bacteria_leaf %>% 
+  count(Genus)
+
+plot_data$Total <- sum(plot_data$n)
+plot_data$RelativeAbundance <- plot_data$n / plot_data$Total
+top_phyla <- head(plot_data$Genus[order(plot_data$RelativeAbundance, decreasing = TRUE)], 10)
+plot_data <- plot_data%>%
+  mutate(Genus2 = ifelse(Genus %in% top_phyla, paste0(Genus), "Others"))
+plot_data[1,5] <- "Others"
+plot_data[212,5] <- "Others"
+plot_data[206,5] <- "Others"
+
+plot_data <- plot_data%>%
+  mutate(Order = ifelse(Genus2 == "Others", "Others", 
+                         ifelse(Genus2 == "Sphingomonas", "Alphaproteobacteria", 
+                                ifelse(Genus2 == "Acidiphilium", "Alphaproteobacteria", 
+                                       ifelse(Genus2 == "1174-901-12", "Alphaproteobacteria", 
+                                              ifelse(Genus2 == "Bryobacter", "Acidobacteriota", 
+                                                     ifelse(Genus2 == "Methylobacterium-Methylorubrum", "Alphaproteobacteria", 
+                                                            ifelse(Genus2 == "Nocardioides", "Actinobacteria", 
+                                                                   ifelse(Genus2 == "Paenibacillus", "Firmicutes", "Others")))))))))
+                                
+                             
+
+#labels
+plot_data <- plot_data%>%
+  mutate(labels = ifelse(Genus2 == "Others", "", paste0(Genus2)))
+custom_colors5 <- c("#40916c", "#b7e4c7", "#a1cee1", "#184e77",  "#dce1de", "#468faf")
+
+# library(cowplot)
+# library(magick)
+
+img <- image_read("E:/Sophie_pipeline/obitools/resources/Bacteria.png")
+
+p<-plot_data %>%
+    ggplot(aes(x=fct_reorder(Genus2, Order), y=RelativeAbundance, fill=Order)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Order") +
+   #geom_text(aes(label=labels), size=3, position=position_stack(vjust = 0.5)) +
+    scale_fill_manual(values= custom_colors5) +
+    coord_flip() + theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Core leaf bacteria endophytes") 
+
+# Set the canvas where you are going to draw the plot and the image
+plot <- ggdraw() +
+  # Draw the plot in the canvas setting the x and y positions, which go from 0,0
+  # (lower left corner) to 1,1 (upper right corner) and set the width and height of
+  # the plot. It's advisable that x + width = 1 and y + height = 1, to avoid clipping 
+  # the plot
+  draw_plot(p,x = 0, y = 0, width = 1, height = 1) +
+  # Draw image in the canvas using the same concept as for the plot. Might need to 
+  # play with the x, y, width and height values to obtain the desired result
+  draw_image(img,x = 0.12, y = 0.92, width = 0.08, height = 0.08)  
+
+ggsave(filename = "Bacteria_coreleaf.jpeg", plot = plot, width = 10, height = 8)
+
+
+#plot results
+data <- data.frame(
+  Species = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis", "Shared"),
+#  OTU = c(length(leaf_bac_ef$OTU), length(leaf_bac_ih$OTU), length(leaf_bac_jc$OTU), length(leaf_bac_po$OTU), length(leaf_bac_sg$OTU), length(leaf_bac_tm$OTU), length(leaf_bac_vs$OTU), length(core_leaf_bacteria$OTU)), if i want to show the specific OTUs
+ OTU = c(NA, NA,NA,NA, NA, NA, NA, length(core_leaf_bacteria$OTU)),
+  Total= c(length(EF), length(IH), length(JC), length(PO), length(SG), length(TM), length(VS), NA))
+
+data <- melt(data)
+
+data$Color <- c("A", "B", "C", "D", "E", "F", "G","H", "I", "I", "I", "I",  "I", "I", "I", "I")
+                  
+mycolors <- c("A" = "#F8766D",
+              "B" =  "#C49A00", 
+               "C" = "#53B400", 
+             "D" = "#00C094" ,
+             "E" = "#00B6EB",
+              "F" = "#A58AFF", 
+             "G" ="#FB61D7",
+             "H" = "#ff0000",
+             "I" = "#808080")
+  
+plot_leaf <- data %>%
+  drop_na() %>%
+   mutate(Species = fct_reorder(Species, value, .desc = TRUE)) %>%
+ggplot() + 
+  aes(x=value, y = Species, fill = Color) + 
+  geom_bar(stat="identity") +
+  labs(x = "Number of OTus", x = NULL) +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.position = "none", axis.title.y = element_blank(), axis.title.x = element_blank())+
+  annotate("text", x=950, y=8, label= "738")
+  # annotate("text", x=260, y=7, label= "253")+
+  # annotate("text", x=280, y=6, label= "272")+
+  #   annotate("text", x=260, y=5, label= "255")+
+  #   annotate("text", x=213, y=4, label= "209")+
+  #   annotate("text", x=220, y=3, label= "214")+
+  #   annotate("text", x=220, y=2, label= "213")+
+  #   annotate("text", x=155, y=1, label= "149")
+  
+plot_leaf
+
+``` 
+
+##root bacteria
+```{r}
+
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+pseq <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# simple way to count number of samples in each group
+tmp <-  melt(aggregate(pseq$reads, by = list(
+    pseq$samples$name), sum))
+colnames(tmp) <- c("Species", "OTU", "Nb_reads")
+tmp <- tmp %>%
+  filter(Nb_reads != 0)
+
+# Convert metabarlists to lists
+EF <- tmp %>% filter(tmp$Species == "Eperua_falcata")
+EF$OTU <- as.character(EF$OTU)
+EF <- as.list(EF[,2])
+
+IH <- tmp %>% filter(Species == "Iryanthera_hostmannii")
+IH$OTU <- as.character(IH$OTU)
+IH <- as.list(IH[,2])
+
+
+JC <- tmp %>% filter(Species == "Jacaranda_copaia")
+JC$OTU <- as.character(JC$OTU)
+JC <- as.list(JC[,2])
+
+PO <- tmp %>% filter(Species == "Pterocarpus_officinalis")
+PO$OTU <- as.character(PO$OTU)
+PO <- as.list(PO[,2])
+
+
+SG <- tmp %>% filter(Species == "Symphonia_globulifera")
+SG$OTU <- as.character(SG$OTU)
+SG <- as.list(SG[,2])
+
+TM <- tmp %>% filter(Species == "Tachigali_melinonii")
+TM$OTU <- as.character(TM$OTU)
+TM <- as.list(TM[,2])
+
+VS <- tmp %>% filter(Species == "Virola_surinamensis")
+VS$OTU <- as.character(VS$OTU)
+VS <- as.list(VS[,2])
+
+# Create a Venn diagram using lists
+#install.packages("ggpolypath")   # Install ggpolypath package
+library("ggpolypath")  
+library(venn)
+x = list(EF, IH,JC, PO, SG, TM, VS)
+y = list(EF, IH,JC, PO, SG, TM, VS)
+
+group_colors <- c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")
+venn(x, snames = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis"), ggplot = TRUE,  borders = FALSE )+
+  theme_minimal(base_size = 12)
+
+# get specific intersections
+my_venn <- venn(y)
+a<-attr(x = my_venn, "intersections")
+
+#per species
+root_bac_ef <-  as.data.frame(t(as.data.frame(a$`A`))) %>% rename("OTU" = "V1")
+root_bac_ih <-  as.data.frame(t(as.data.frame(a$`B`))) %>% rename("OTU" = "V1")
+root_bac_jc <-  as.data.frame(t(as.data.frame(a$`C`))) %>% rename("OTU" = "V1")
+root_bac_po <-  as.data.frame(t(as.data.frame(a$`D`))) %>% rename("OTU" = "V1")
+root_bac_sg <-  as.data.frame(t(as.data.frame(a$`E`))) %>% rename("OTU" = "V1")
+root_bac_tm <-  as.data.frame(t(as.data.frame(a$`F`))) %>% rename("OTU" = "V1")
+root_bac_vs <-  as.data.frame(t(as.data.frame(a$`G`))) %>% rename("OTU" = "V1")
+
+#core root bacteria
+core_root_bacteria <- as.data.frame(t(as.data.frame(a$`A:B:C:D:E:F:G`))) %>% rename("OTU" = "V1")
+
+#associate taxo to core microbiota
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+shared_bacteria_root<- left_join(core_root_bacteria, taxo)
+shared_bacteria_root<- shared_bacteria_root %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE) 
+shared_bacteria_root$organ <- "root"
+
+
+#plot results
+data_root <- data.frame(
+  Species = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis", "Shared"),
+  OTU = c(NA, NA,NA,NA, NA, NA, NA, length(core_root_bacteria$OTU)), 
+  Total= c(length(EF), length(IH), length(JC), length(PO), length(SG), length(TM), length(VS), NA))
+                  
+data_root <- melt(data_root)
+data_root$Color <- c("A", "B", "C", "D", "E", "F", "G","H", "I", "I", "I", "I",  "I", "I", "I", "I")
+                  
+mycolors <- c("A" = "#F8766D",
+              "B" =  "#C49A00", 
+               "C" = "#53B400", 
+             "D" = "#00C094" ,
+             "E" = "#00B6EB",
+              "F" = "#A58AFF", 
+             "G" ="#FB61D7",
+             "H" = "#ff0000",
+             "I" = "#808080")
+       
+plot_root <- data_root %>%
+  drop_na() %>%
+   mutate(Species = fct_reorder(Species, value,.desc = TRUE)) %>%
+ggplot() + 
+  aes(x=value, y = Species,  fill = forcats::fct_rev(Color)  ) + 
+  geom_bar(stat="identity") +
+  labs(x = "Number of OTus", x = NULL) +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.position = "none", axis.title.y = element_blank(), axis.title.x = element_blank())+
+  annotate("text", x=500, y=8, label= "324")
+  # annotate("text", x=490, y=7, label= "487")+
+  # annotate("text", x=490, y=6, label= "488")+
+  #   annotate("text", x=380, y=5, label= "374")+
+  #   annotate("text", x=330, y=4, label= "324")+
+  #   annotate("text", x=300, y=3, label= "289")+
+  #   annotate("text", x=220, y=2, label= "213")+
+  #   annotate("text", x=130, y=1, label= "120")
+  
+plot_root
+
+#plot core root bacteria taxa
+plot_data <- shared_bacteria_root %>% 
+  mutate(Fungi = paste0(Class, " ", Order," ", Family," ", Genus)) %>%
+  count(Fungi)
+
+plot_data$Total <- sum(plot_data$n)
+plot_data$RelativeAbundance <- plot_data$n / plot_data$Total
+top_phyla <- head(plot_data$Fungi[order(plot_data$RelativeAbundance, decreasing = TRUE)], 10)
+plot_data <- plot_data%>%
+  mutate(Fungi2 = ifelse(Fungi %in% top_phyla, paste0(Fungi), "Others"))
+plot_data[178,5] <- "Chloroflexi TK10"
+
+
+plot_data <- plot_data %>%
+  separate(Fungi2, into = c("Class", "Order", "Family", "Genus"), sep = " ", remove = FALSE) 
+
+plot_data <- plot_data%>%
+  mutate(Fungi3 = ifelse(Fungi2 == "Others", "Others", 
+                         ifelse(Fungi2 == "Acidobacteriae Acidobacteriales uncultured ", "Acidobacteriales uncultured", 
+                                ifelse(Fungi2 == "Bacilli Paenibacillales Paenibacillaceae Paenibacillus", "Paenibacillus", 
+                                       ifelse(Fungi2 == "Alphaproteobacteria Elsterales uncultured ", "Elsterales uncultured", 
+                                              ifelse(Fungi2 == "Alphaproteobacteria Rhizobiales Xanthobacteraceae uncultured", "Xanthobacteraceae uncultured", 
+                                                     ifelse(Fungi2 == "Actinobacteria Frankiales Acidothermaceae Acidothermus", "Acidothermus", 
+                                                            ifelse(Fungi2 == "Gammaproteobacteria Gammaproteobacteria Incertae Sedis Unknown Family Acidibacter", "Acidibacter", 
+                                                                   ifelse(Fungi2 == "Oligoflexia 0319-6G20  NA", "Oligoflexia 0319-6G20",
+                                                                          ifelse(Fungi2 == "Acidobacteriae Solibacterales Solibacteraceae Candidatus Solibacter", "Solibacter",
+                                                                                 ifelse(Fungi2 == "Acidobacteriae Subgroup 2  NA", "Acidobacteriae Subgroup 2",
+                                                                                 ifelse(Fungi2 == "Chloroflexi TK10", "Chloroflexi TK10", 
+                                                                                        ifelse(Fungi2 == "Alphaproteobacteria Elsterales uncultured", "Elsterales uncultured", "Others")))))))))))))
+                                
+                             
+
+#colors
+custom_colors5 <- c("#40916c", "#b7e4c7", "#a1cee1", "#184e77",  "#dce1de", "#468faf")
+
+# library(cowplot)
+# library(magick)
+
+img <- image_read("E:/Sophie_pipeline/obitools/resources/Bacteria.png")
+
+p<-plot_data %>%
+    ggplot(aes(x=fct_reorder(Fungi3, Order), y=RelativeAbundance, fill=Class)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Class") +
+   #geom_text(aes(label=labels), size=3, position=position_stack(vjust = 0.5)) +
+   # scale_fill_manual(values= custom_colors5) +
+    coord_flip() + theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Core root bacteria endophytes") 
+p
+# Set the canvas where you are going to draw the plot and the image
+plot <- ggdraw() +
+  # Draw the plot in the canvas setting the x and y positions, which go from 0,0
+  # (lower left corner) to 1,1 (upper right corner) and set the width and height of
+  # the plot. It's advisable that x + width = 1 and y + height = 1, to avoid clipping 
+  # the plot
+  draw_plot(p,x = 0, y = 0, width = 1, height = 1) +
+  # Draw image in the canvas using the same concept as for the plot. Might need to 
+  # play with the x, y, width and height values to obtain the desired result
+  draw_image(img,x = 0.12, y = 0.92, width = 0.08, height = 0.08)  
+
+ggsave(filename = "Bacteria_coreroot.jpeg", plot = plot, width = 10, height = 8)
+
+``` 
+
+bacteria plot 
+```{r}
+#plot bacteria
+title_s <- "Bacteria"
+
+# Create a text grob
+tgrob_s <- ggpubr::text_grob(title_s,size = 18, face = "bold", color= "#f4978e")
+# Draw the text
+plot_s <- as_ggplot(tgrob_s) + theme(plot.margin = margin(0,3,0,0, "cm"))
+
+
+bacteria <- ggarrange(plot_s, NULL, plot_leaf, plot_root, nrow = 2, ncol=2, labels = c("","","Leaf", "Root"), font.label = list(face = "italic"), heights = c(0.5,5))
+bacteria
+```
+
+##leaf fungi
+```{r}
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+pseq <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# simple way to count number of samples in each group
+tmp <-  melt(aggregate(pseq$reads, by = list(
+    pseq$samples$name), sum))
+colnames(tmp) <- c("Species", "OTU", "Nb_reads")
+tmp <- tmp %>%
+  filter(Nb_reads != 0)
+
+library(VennDiagram)
+# Convert metabarlists to lists
+EF <- tmp %>% filter(tmp$Species == "Eperua_falcata")
+EF$OTU <- as.character(EF$OTU)
+EF <- as.list(EF[,2])
+
+IH <- tmp %>% filter(Species == "Iryanthera_hostmannii")
+IH$OTU <- as.character(IH$OTU)
+IH <- as.list(IH[,2])
+
+
+JC <- tmp %>% filter(Species == "Jacaranda_copaia")
+JC$OTU <- as.character(JC$OTU)
+JC <- as.list(JC[,2])
+
+PO <- tmp %>% filter(Species == "Pterocarpus_officinalis")
+PO$OTU <- as.character(PO$OTU)
+PO <- as.list(PO[,2])
+
+
+SG <- tmp %>% filter(Species == "Symphonia_globulifera")
+SG$OTU <- as.character(SG$OTU)
+SG <- as.list(SG[,2])
+
+TM <- tmp %>% filter(Species == "Tachigali_melinonii")
+TM$OTU <- as.character(TM$OTU)
+TM <- as.list(TM[,2])
+
+VS <- tmp %>% filter(Species == "Virola_surinamensis")
+VS$OTU <- as.character(VS$OTU)
+VS <- as.list(VS[,2])
+
+# Create a Venn diagram using lists
+x = list(EF, IH,JC, PO, SG, TM, VS)
+y = list(EF, IH,JC, PO, SG, TM, VS)
+venn(x, snames = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis"), ggplot = TRUE,  borders = FALSE )+
+  theme_minimal(base_size = 12)
+
+# get specific intersections
+my_venn <- venn(y)
+a<-attr(x = my_venn, "intersections")
+
+#per species
+leaf_fun_ef <-  as.data.frame(t(as.data.frame(a$`A`))) %>% rename("OTU" = "V1")
+leaf_fun_ih <-  as.data.frame(t(as.data.frame(a$`B`))) %>% rename("OTU" = "V1")
+leaf_fun_jc <-  as.data.frame(t(as.data.frame(a$`C`))) %>% rename("OTU" = "V1")
+leaf_fun_po <-  as.data.frame(t(as.data.frame(a$`D`))) %>% rename("OTU" = "V1")
+leaf_fun_sg <-  as.data.frame(t(as.data.frame(a$`E`))) %>% rename("OTU" = "V1")
+leaf_fun_tm <-  as.data.frame(t(as.data.frame(a$`F`))) %>% rename("OTU" = "V1")
+leaf_fun_vs <-  as.data.frame(t(as.data.frame(a$`G`))) %>% rename("OTU" = "V1")
+
+#core leaf fungi
+core_leaf_fungi <- as.data.frame(t(as.data.frame(a$`A:B:C:D:E:F:G`))) %>% rename("OTU" = "V1")
+
+#associate taxo to core microbiota
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+shared_fungi_leaf<- left_join(core_leaf_fungi, taxo)
+#to moditfy maybe shared_fungi_leaf<- shared_fungi_leaf %>% separate(path, into = c("PlantOrgan", "Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = "100 %", remove = FALSE) 
+shared_fungi_leaf$organ <- "leaf"
+
+#plot core leaf fungi taxa
+plot_data <- shared_fungi_leaf %>% 
+  count(Genus)
+
+plot_data$Total <- sum(plot_data$n)
+plot_data$RelativeAbundance <- plot_data$n / plot_data$Total
+top_phyla <- head(plot_data$Genus[order(plot_data$RelativeAbundance, decreasing = TRUE)], 10)
+plot_data <- plot_data%>%
+  mutate(Genus2 = ifelse(Genus %in% top_phyla, paste0(Genus), "Others"))
+
+#labels
+plot_data <- plot_data%>%
+  mutate(labels = ifelse(Genus2 == "Others", "", paste0(Genus2)))
+custom_colors5 <- c("#40916c", "#b7e4c7", "#a1cee1", "#184e77",  "#dce1de", "#468faf")
+
+# library(cowplot)
+# library(magick)
+p<-plot_data %>%
+    ggplot(aes(x=Genus2, y=RelativeAbundance, fill=Genus2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Genus") +
+   #geom_text(aes(label=labels), size=3, position=position_stack(vjust = 0.5)) +
+    scale_fill_manual(values= custom_colors5) +
+    coord_flip() + theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Core leaf fungi endophytes") 
+
+p
+#plot results
+data <- data.frame(
+  Species = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis", "Shared"),
+  OTU = c(NA, NA, NA, NA, NA, NA ,NA, length(core_leaf_fungi$OTU)), 
+  Total= c(length(EF), length(IH), length(JC), length(PO), length(SG), length(TM), length(VS), NA))
+                  
+data <- melt(data)
+data$Color <- c("A", "B", "C", "D", "E", "F", "G","H", "I", "I", "I", "I",  "I", "I", "I", "I")
+                  
+mycolors <- c("A" = "#F8766D",
+              "B" =  "#C49A00", 
+               "C" = "#53B400", 
+             "D" = "#00C094" ,
+             "E" = "#00B6EB",
+              "F" = "#A58AFF", 
+             "G" ="#FB61D7",
+             "H" = "#ff0000",
+             "I" = "#808080")
+       
+plot_leaf_fun <- data %>%
+  drop_na() %>%
+   mutate(Species = fct_reorder(Species, value, .desc = TRUE)) %>%
+ggplot() + 
+  aes(x=value, y = Species,  fill = forcats::fct_rev(Color)  ) + 
+  geom_bar(stat="identity") +
+  labs(x = "Number of OTus", x = NULL) +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.position = "none", axis.title.y = element_blank())+
+  annotate("text", x=1050, y=8, label= "816")
+  # annotate("text", x=800, y=7, label= "779")+
+  # annotate("text", x=800, y=6, label= "773")+
+  #   annotate("text", x=650, y=5, label= "628")+
+  #   annotate("text", x=670, y=4, label= "651")+
+  #   annotate("text", x=570, y=3, label= "545")+
+  #   annotate("text", x=580, y=2, label= "560")+
+  #   annotate("text", x=520, y=1, label= "506")
+  
+plot_leaf_fun
+
+``` 
+##root fungi
+
+```{r}
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+pseq <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# simple way to count number of samples in each group
+tmp <-  melt(aggregate(pseq$reads, by = list(
+    pseq$samples$name), sum))
+colnames(tmp) <- c("Species", "OTU", "Nb_reads")
+tmp <- tmp %>%
+  filter(Nb_reads != 0)
+
+library(VennDiagram)
+# Convert metabarlists to lists
+EF <- tmp %>% filter(tmp$Species == "Eperua_falcata")
+EF$OTU <- as.character(EF$OTU)
+EF <- as.list(EF[,2])
+
+IH <- tmp %>% filter(Species == "Iryanthera_hostmannii")
+IH$OTU <- as.character(IH$OTU)
+IH <- as.list(IH[,2])
+
+
+JC <- tmp %>% filter(Species == "Jacaranda_copaia")
+JC$OTU <- as.character(JC$OTU)
+JC <- as.list(JC[,2])
+
+PO <- tmp %>% filter(Species == "Pterocarpus_officinalis")
+PO$OTU <- as.character(PO$OTU)
+PO <- as.list(PO[,2])
+
+
+SG <- tmp %>% filter(Species == "Symphonia_globulifera")
+SG$OTU <- as.character(SG$OTU)
+SG <- as.list(SG[,2])
+
+TM <- tmp %>% filter(Species == "Tachigali_melinonii")
+TM$OTU <- as.character(TM$OTU)
+TM <- as.list(TM[,2])
+
+VS <- tmp %>% filter(Species == "Virola_surinamensis")
+VS$OTU <- as.character(VS$OTU)
+VS <- as.list(VS[,2])
+
+x = list(EF, IH,JC, PO, SG, TM, VS)
+y = list(EF, IH,JC, PO, SG, TM, VS)
+venn(x, snames = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis"), ggplot = TRUE,  borders = FALSE )+
+  theme_minimal(base_size = 12)
+
+# get specific intersections
+my_venn <- venn(y)
+a<-attr(x = my_venn, "intersections")
+
+#per species
+root_fun_ef <-  as.data.frame(t(as.data.frame(a$`A`))) %>% rename("OTU" = "V1")
+root_fun_ih <-  as.data.frame(t(as.data.frame(a$`B`))) %>% rename("OTU" = "V1")
+root_fun_jc <-  as.data.frame(t(as.data.frame(a$`C`))) %>% rename("OTU" = "V1")
+root_fun_po <-  as.data.frame(t(as.data.frame(a$`D`))) %>% rename("OTU" = "V1")
+root_fun_sg <-  as.data.frame(t(as.data.frame(a$`E`))) %>% rename("OTU" = "V1")
+root_fun_tm <-  as.data.frame(t(as.data.frame(a$`F`))) %>% rename("OTU" = "V1")
+root_fun_vs <-  as.data.frame(t(as.data.frame(a$`G`))) %>% rename("OTU" = "V1")
+
+#core root fungi
+core_root_fungi <- as.data.frame(t(as.data.frame(a$`A:B:C:D:E:F:G`))) %>% rename("OTU" = "V1")
+
+#associate taxo to core microbiota
+load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+names(natura_clean$motus)
+taxo <- natura_clean$motus %>% dplyr::select(id, sequence, path) %>% rename("OTU" = "id")
+shared_fungi_root<- left_join(core_root_fungi, taxo)
+shared_fungi_root<- shared_fungi_root %>% separate(path, into = c("Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = ";", remove = FALSE) 
+shared_fungi_root$organ <- "root"
+
+#to moditfy maybe shared_fungi_leaf<- shared_fungi_leaf %>% separate(path, into = c("PlantOrgan", "Domain","Phylum", "Class", "Order", "Family", "Genus"), sep = "100 %", remove = FALSE) 
+
+
+#plot core leaf fungi taxa
+plot_data <- shared_fungi_root %>% 
+  count(Genus)
+
+plot_data$Total <- sum(plot_data$n)
+plot_data$RelativeAbundance <- plot_data$n / plot_data$Total
+top_phyla <- head(plot_data$Genus[order(plot_data$RelativeAbundance, decreasing = TRUE)], 10)
+plot_data <- plot_data%>%
+  mutate(Genus2 = ifelse(Genus %in% top_phyla, paste0(Genus), "Others"))
+
+#labels
+plot_data <- plot_data%>%
+  mutate(labels = ifelse(Genus2 == "Others", "", paste0(Genus2)))
+custom_colors5 <- c("#40916c", "#b7e4c7", "#a1cee1", "#184e77",  "#dce1de", "#468faf")
+
+# library(cowplot)
+# library(magick)
+p<-plot_data %>%
+    ggplot(aes(x=Genus2, y=RelativeAbundance, fill=Genus2)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Genus") +
+   #geom_text(aes(label=labels), size=3, position=position_stack(vjust = 0.5)) +
+    scale_fill_manual(values= custom_colors5) +
+    coord_flip() + theme_bw() +
+    theme(legend.position = "bottom",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Core root fungi endophytes") 
+
+p
+#plot results
+data_root <- data.frame(
+  Species = c("E. falcata","I. hostmannii","J. copaia","P. officinalis", "S. globulifera","T. melinonii", "V. surinamensis", "Shared"),
+  OTU = c(NA, NA, NA, NA, NA, NA, NA, length(core_root_fungi$OTU)), 
+  Total= c(length(EF), length(IH), length(JC), length(PO), length(SG), length(TM), length(VS), NA))
+
+
+data_root <- melt(data_root)
+data_root$Color <- c("A", "B", "C", "D", "E", "F", "G","H", "I", "I", "I", "I",  "I", "I", "I", "I")
+                  
+mycolors <- c("A" = "#F8766D",
+              "B" =  "#C49A00", 
+               "C" = "#53B400", 
+             "D" = "#00C094" ,
+             "E" = "#00B6EB",
+              "F" = "#A58AFF", 
+             "G" ="#FB61D7",
+             "H" = "#ff0000",
+             "I" = "#808080")
+
+plot_root_fun <- data_root %>%
+  drop_na() %>%
+   mutate(Species = fct_reorder(Species, value, .desc = TRUE)) %>%
+ggplot() + 
+  aes(x=value, y = Species,  fill = forcats::fct_rev(Color)  ) + 
+  geom_bar(stat="identity") +
+  labs(x = "Number of OTus", x = NULL) +
+  scale_fill_manual(values = mycolors) +
+  theme_minimal() +
+  theme(legend.title = element_blank(),
+        legend.position = "none", axis.title.y = element_blank())+
+  annotate("text", x=250, y=8, label= "107")
+  # annotate("text", x=800, y=7, label= "771")+
+  # annotate("text", x=570, y=6, label= "544")+
+  #   annotate("text", x=530, y=5, label= "515")+
+  #   annotate("text", x=480, y=4, label= "454")+
+  #   annotate("text", x=480, y=3, label= "443")+
+  #   annotate("text", x=400, y=2, label= "384")+
+  #   annotate("text", x=100, y=1, label= "56")
+  
+plot_root_fun
+
+```
+
+
+fungi plot 
+```{r}
+#plot fungi
+title_s <- "Fungi"
+
+# Create a text grob
+tgrob_s <- ggpubr::text_grob(title_s,size = 18, face = "bold", color= "#9d0208")
+# Draw the text
+plot_s <- as_ggplot(tgrob_s) + theme(plot.margin = margin(0,3,0,0, "cm"))
+
+
+fungi <- ggarrange(plot_s, NULL, plot_leaf_fun, plot_root_fun, nrow = 2, ncol=2, labels = c("","","Leaf", "Root"), font.label = list(face = "italic"), heights = c(0.5,5))
+fungi
+```
+
+##Plot fungi and bacteria all together
+```{r}
+Core_plot <- ggarrange( bacteria, fungi, nrow = 2)
+Core_plot
+```
+

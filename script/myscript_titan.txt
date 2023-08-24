@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH -J lauchRscript
+#SBATCH -p unlimitq
+#SBATCH --mem=15G
+#SBATCH -o output_titan.out
+
+#SBATCH --mail-type=BEGIN,END,FAIL
+
+module purge
+
+module load system/R-3.5.1
+
+Rscript TITAN_script_genotoul.R

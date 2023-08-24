@@ -1,0 +1,575 @@
+---
+title: "Variance partitioning"
+author: "Marion Boisseaux"
+date: "2023-05-10"
+output: html_document
+---
+
+**Variance partitioning** 
+
+# library
+```{r}
+library(vegan)
+```
+
+
+(rda(spe_hellinger, env_water_chemistry, env_topograhpy))
+Test fraction [c]
+anova.cca(rda(spe_hellinger, env_topograhpy, env_water_chemistry))
+
+# leaf ITS 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+```
+
+
+## vp on Shannon
+
+```{r}
+
+#trait data
+trait_st <- leaf$samples %>% dplyr::select(SLA, LA_rwc, RootShoot, RootLength_Total, Height, LSWC, StomatalDensity, SRL, RootDiameter, LT, gmin) %>% scale(center = TRUE, scale = TRUE) %>% as.data.frame()# Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+trait_st$sample_id <- rownames(trait_st)
+trait_st <- left_join(trait_st, leaf$samples %>% dplyr::select(sample_id, name))
+names(trait_st)
+Shannon <- leaf$samples %>% dplyr::select(Shannon, sample_id)
+trait_st <- left_join(trait_st, Shannon)
+names(trait_st)
+
+
+# Calculate variance partitioning
+vp <-varpart(Y = leaf$samples$Shannon ,  ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + StomatalDensity + SLA + LA_rwc, # leaf traits
+             ~Height, #plant trait
+              # ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = trait_st)
+vp
+showvarparts(4, bg=2:4)
+plot(vp, digits = 3, Xnames = c("root traits", "leaf traits","plant traits", "species Id"))
+
+# 
+# #use RDA to test significance of fractions of interest
+# 
+# # Test fraction [a] using partial RDA:
+# roottraits <- model.matrix(~SRL + RootDiameter + RootLength_Total, trait_st)[,-1]
+# # Test fraction [b] using partial RDA:
+# leaftraits <- model.matrix(~LSWC + LT + gmin + StomatalDensity + fvfm, trait_st)[,-1]
+# # Test fraction [c] using partial RDA:
+# location <- model.matrix(~MEM1 + MEM2 + MEM3 +MEM4, trait_st)[,-1]
+# # Test fraction [d] using partial RDA:
+# identity <- model.matrix(~name, trait_st)[,-1]
+# # Test fraction [e] using partial RDA:
+# planttraits <- model.matrix(~Height + NbLeaves + LA_Total, trait_st)[,-1]
+# 
+# aFrac <- rda(trait_st$Shannon, roottraits)
+# bFrac <- rda(trait_st$Shannon, leaftraits)
+# cFrac <- rda(trait_st$Shannon, location)
+# dFrac <- rda(trait_st$Shannon, identity)
+# eFrac <- rda(trait_st$Shannon, planttraits)
+# 
+# 
+# #Test fraction with anovo or anova.cca
+# anova(aFrac, step=200, perm.max=200) #0.007 ** 
+# anova(bFrac, step=200, perm.max=200) #0.139
+# anova(cFrac, step=200, perm.max=200) #0.863
+# anova(dFrac, step=200, perm.max=200) #0.001 ***
+# anova(eFrac, step=200, perm.max=200) #0.001 ***
+# 
+# # RsquareAdj gives the same result as component [a] of varpart
+# a <- unlist(RsquareAdj(aFrac)[2]) #15% X1
+# b <- unlist(RsquareAdj(bFrac)[2]) #34% X2
+# c <- unlist(RsquareAdj(cFrac)[2]) #0% X3
+# d <- unlist(RsquareAdj(dFrac)[2]) #40% X4
+# 
+# total <- a+b+d
+# 
+# total
+# vp <-varpart(Y = leaf$samples$Shannon , 
+#              ~ NbLeaves + LA_Total + Height, #plant traits
+#                ~name, #species' ID
+#                 ~ SRL + RootDiameter + RootLength_Total, #location
+#                data = trait_st)
+# plot(vp)
+```
+
+Plot les effets **purs**
+```{r}
+ # prepare plot for diversity 
+  vp_leaf <- 0
+  vp_root <- round(vp$part$indfract[3,3] *100)
+  vp_plant <- round(vp$part$indfract[1,3] *100)
+  vp_name <- round(vp$part$indfract[2,3] *100)
+  vp_location <- 0
+  vp_shared <- round(sum(vp$part$indfract[4:7,3]) *100)
+  vp_res <- 100- (vp_root + vp_name + vp_plant + vp_shared)
+
+  Organ <- c("Leaf")
+  Microorganism <- c("Fungi")
+  Diversity <- c("Shannon")
+  Levels <- c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual")
+  Variances <- c(vp_leaf, vp_root, vp_plant, vp_name, vp_location, vp_shared, vp_res)
+  data.plot <-  data.frame(Organ, Microorganism, Diversity, Levels, Variances)
+  
+  #plot the results
+ data.plot$Levels <- as.factor(data.plot$Levels)
+ variance_plot<- data.plot %>% 
+  mutate(Levels = factor(Levels, levels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Microorganism)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#a7c957","#d4a373", "#a8dadc",  "#ffb4a2","#ffba08", "#BBBBBB", "#f8f9fa" ),
+                    breaks=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"),
+                    labels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)
+variance_plot -> vp_leaf_fungi_diversity
+vp_leaf_fungi_diversity
+```
+
+
+## vp on composition
+
+Bray–Curtis distances were used for microbial composition in this analysis.
+
+```{r}
+# microbial data, hellinger transformed or not
+microbio.hel <- leaf$reads %>% decostand(., "hell")
+microbio.hel.bray <- vegdist(microbio.hel, method = "bray")
+microbio <- vegdist(leaf$reads, method = "bray")
+
+#trait data
+trait_st <- leaf$samples %>% dplyr::select(SLA, LA_rwc, RootShoot, RootLength_Total, Height, LSWC, StomatalDensity, SRL, RootDiameter, LT, gmin) %>% scale(center = TRUE, scale = TRUE) %>% as.data.frame()# Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+trait_st$sample_id <- rownames(trait_st)
+trait_st <- left_join(trait_st,leaf$samples %>% dplyr::select(sample_id, name))
+names(trait_st)
+trait_st$name  <- as.factor(trait_st$name)
+trait_st$name  <- unclass(trait_st$name)
+
+# Calculate variance partitioning
+vp2 <-varpart(Y = microbio.hel.bray ,  
+              # ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + StomatalDensity + SLA + LA_rwc, # leaf traits
+              # ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = trait_st)
+vp2
+showvarparts(2, bg=2:4)
+plot(vp2, digits = 3, Xnames = c( "leaf traits","species Id"))
+
+
+#Use function ‘dbrda’ to test significance of fractions of interest
+
+# Test fraction [a] using partial RDA:
+roottraits <- model.matrix(~SRL + RootDiameter + RootLength_Total, trait_st)[,-1]
+# Test fraction [b] using partial RDA:
+leaftraits <- model.matrix(~LSWC + LT + gmin + StomatalDensity + fvfm, trait_st)[,-1]
+# Test fraction [c] using partial RDA:
+location <- model.matrix(~MEM1 + MEM2 + MEM3 +MEM4, trait_st)[,-1]
+# Test fraction [d] using partial RDA:
+identity <- model.matrix(~name, trait_st)[,-1]
+# Test fraction [e] using partial RDA:
+planttraits <- model.matrix(~Height + NbLeaves + LA_Total, trait_st)[,-1]
+
+# aFrac <- dbrda(microbio.hel.bray ~ roottraits)
+# bFrac <- dbrda(microbio.hel.bray ~  leaftraits)
+# cFrac <- dbrda(microbio.hel.bray ~  location)
+# dFrac <- dbrda(microbio.hel.bray~ identity)
+# eFrac <- dbrda(microbio.hel.bray~ planttraits)
+
+aFrac <- dbrda(microbio ~ roottraits)
+bFrac <- dbrda(microbio ~  leaftraits)
+cFrac <- dbrda(microbio ~  location)
+dFrac <- dbrda(microbio~ identity)
+eFrac <- dbrda(microbio~ planttraits)
+all <- capscale(microbio~ roottraits + leaftraits + location + identity)
+all2 <- dbrda(leaf$reads~ roottraits + leaftraits, distance = "bray")
+anova(all2, step=200, perm.max=200, by= "terms" ) #*
+plot(all)
+global_r2 <- RsquareAdj(all2)$adj.r.squared # 4%
+sqrt(vif.cca(all2)) #As a rule of the thumb, if VIF−−−−√>2 multicollinearity is considered high
+
+plot(all2, type= "n", scaling= "species")
+points(all2, display="sites", pch=20)
+text(all2$terms, display="bp", col=4)
+text(bFrac, display="bp", col=3 )
+
+null_model <- dbrda(microbio ~ 1 , data = trait_st) 
+
+a <- ordiR2step (null_model, scope = formula(all2), direction = c("forward"))
+a
+(microbio, # Y matrix
+  trait_st, # X matrix
+  adjR2thresh = global_r2, # Set the adj.R2 threshold
+  alpha = 0.001, # Set alpha level
+  nperm = 999  # Number of permutations
+)   
+
+Stop generating
+
+0.04487*0.28 = 0.0125
+
+anova(aFrac, step=200, perm.max=200) #0.695
+anova(bFrac, step=200, perm.max=200) # 0.011 *
+anova(cFrac, step=200, perm.max=200) #  0.011 *
+anova(dFrac, step=200, perm.max=200) # 0.008 **
+anova(eFrac, step=200, perm.max=200) #   0.477
+
+# RsquareAdj gives the same result as component [a] of varpart
+a <- unlist(RsquareAdj(aFrac)[2])
+b <- unlist(RsquareAdj(bFrac)[2])
+c <- unlist(RsquareAdj(cFrac)[2])
+d <- unlist(RsquareAdj(dFrac)[2])
+
+#final model
+vp2 <-varpart(Y = microbio ,  
+               ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + StomatalDensity + fvfm, # leaf traits
+               #~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               #~name, #species' ID
+              #~Height + NbLeaves + LA_Total,  
+               data = trait_st)
+vp2
+plot(vp2)
+```
+
+[a+d+f+g] = X1         5  0.08320      0.01268     TRUE
+[b+d+e+g] = X2         4  0.07129      0.01501     TRUE
+[c+e+f+g] = X3         6  0.10211      0.01794     TRUE
+
+Plot les effets **purs**
+```{r}
+ # prepare plot for diversity 
+  vp_leaf <- round( 0.01268  *100)
+  vp_root <- 0
+  vp_plant <- 0
+  vp_name <- round( 0.01794  *100)
+  vp_location <- round(0.01501 *100)
+  vp_shared <- round(sum(vp2$part$indfract[4:7,3]) *100)
+  vp_res <- 100- (vp_leaf + vp_plant + vp_name + vp_location + vp_shared)
+
+  Organ <- c("Leaf")
+  Microorganism <- c("Fungi")
+  Diversity <- c("Composition")
+  Levels <- c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared")
+  Variances <- c(vp_leaf, vp_root, vp_plant, vp_name, vp_location, vp_shared)
+  data.plot.2 <-  data.frame(Organ, Microorganism, Diversity, Levels, Variances)
+  
+  #plot the results
+ data.plot2$Levels <- as.factor(data.plot$Levels)
+ variance_plot<- data.plot.2 %>% 
+  mutate(Levels = factor(Levels, levels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Microorganism)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#a7c957","#d4a373", "#a8dadc",  "#ffb4a2","#ffba08", "#BBBBBB"),
+                    breaks=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared"),
+                    labels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)
+variance_plot -> vp_leaf_fungi_compo
+vp_leaf_fungi_compo
+```
+
+
+
+
+#merge for leaf ITS compo + dv
+
+```{r}
+leaf_ITS <- rbind(data.plot, data.plot.2)
+#plot
+
+ leaf_ITS %>% 
+  mutate(Levels = factor(Levels, levels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Microorganism)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#a7c957","#d4a373", "#a8dadc",  "#ffb4a2","#ffba08", "#BBBBBB", "#f8f9fa" ),
+                    breaks=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"),
+                    labels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Diversity)
+```
+
+# root ITS 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+```
+
+
+## vp on Shannon
+
+```{r}
+
+#trait data
+trait_st <- root$samples %>% dplyr::select(RootShoot, RootLength_Total, LA_Total, Height, StemDiameter, NbLeaves, LSWC, fvfm, StomatalDensity, SRL, RootDiameter, LT, gmin, MEM1, MEM2, MEM3, MEM4, MajVLA, TLP) %>% scale(center = TRUE, scale = TRUE) %>% as.data.frame()# Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+trait_st$sample_id <- rownames(trait_st)
+trait_st <- left_join(trait_st, root$samples %>% dplyr::select(sample_id, name))
+names(trait_st)
+Shannon <- root$samples %>% dplyr::select(Shannon, sample_id)
+trait_st <- left_join(trait_st, Shannon)
+names(trait_st)
+
+
+# Calculate variance partitioning
+vp3 <-varpart(Y = root$samples$Shannon ,  ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm, # leaf traits
+               ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = trait_st)
+vp3
+showvarparts(3, bg=2:4)
+plot(vp, digits = 3, Xnames = c("root traits", "leaf traits","species Id"))
+
+
+#use RDA to test significance of fractions of interest
+
+# Test fraction [a] using partial RDA:
+roottraits <- model.matrix(~SRL + RootDiameter + RootLength_Total, trait_st)[,-1]
+# Test fraction [b] using partial RDA:
+leaftraits <- model.matrix(~LSWC + LT + gmin + StomatalDensity + fvfm, trait_st)[,-1]
+# Test fraction [c] using partial RDA:
+location <- model.matrix(~MEM1 + MEM2 + MEM3 +MEM4, trait_st)[,-1]
+# Test fraction [d] using partial RDA:
+identity <- model.matrix(~name, trait_st)[,-1]
+# Test fraction [e] using partial RDA:
+planttraits <- model.matrix(~Height + NbLeaves + LA_Total, trait_st)[,-1]
+
+aFrac <- rda(trait_st$Shannon, roottraits)
+bFrac <- rda(trait_st$Shannon, leaftraits)
+cFrac <- rda(trait_st$Shannon, location)
+dFrac <- rda(trait_st$Shannon, identity)
+eFrac <- rda(trait_st$Shannon, planttraits)
+
+
+#Test fraction with anovo or anova.cca
+anova(aFrac, step=200, perm.max=200) # 0.76 root
+anova(bFrac, step=200, perm.max=200) # 0.067 . leaf
+anova(cFrac, step=200, perm.max=200) # 0.592 location
+anova(dFrac, step=200, perm.max=200) # 0.002 ** identity
+anova(eFrac, step=200, perm.max=200) #0.101 planttraits
+
+vp3 <-varpart(Y = root$samples$Shannon , 
+             ~ NbLeaves + LA_Total + Height, #plant traits
+               ~name, #species' ID
+                ~ LSWC + LT + gmin + StomatalDensity + fvfm,
+               data = trait_st)
+vp3
+```
+Individual fractions                                   
+[a] = X1 | X2+X3       3               0.00238     TRUE plant
+[b] = X2 | X1+X3       6               0.03052     TRUE name
+[c] = X3 | X1+X2       5              -0.04631     TRUE leaf
+
+Plot les effets **purs**
+```{r}
+ # prepare plot for diversity 
+  vp_leaf <- 0
+  vp_root <- 0
+  vp_plant <- round(vp3$part$indfract[1,3] *100) #0
+  vp_name <- round(vp$part$indfract[2,3] *100)
+  vp_location <- 0
+  vp_shared <- round(sum(vp$part$indfract[4:7,3]) *100)
+  vp_res <- 100- (vp_root + vp_leaf + vp_name + vp_plant + vp_location + vp_shared)
+
+  Organ <- c("Root")
+  Microorganism <- c("Fungi")
+  Diversity <- c("Shannon")
+  Levels <- c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual")
+  Variances <- c(vp_leaf, vp_root, vp_plant, vp_name, vp_location, vp_shared, vp_res)
+  data.plot.3 <-  data.frame(Organ, Microorganism, Diversity, Levels, Variances)
+  
+  #plot the results
+ data.plot$Levels <- as.factor(data.plot$Levels)
+ variance_plot<- data.plot.3 %>% 
+  mutate(Levels = factor(Levels, levels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Microorganism)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#a7c957","#d4a373", "#a8dadc",  "#ffb4a2","#ffba08", "#BBBBBB", "#f8f9fa" ),
+                    breaks=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"),
+                    labels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Organ)
+```
+
+## vp on composition
+
+Bray–Curtis distances were used for microbial composition in this analysis.
+
+```{r}
+# microbial data, hellinger transformed
+microbio.hel <- root$reads %>% decostand(., "hell")
+microbio.hel.bray <- vegdist(microbio.hel, method = "bray")
+
+#trait data
+trait_st <- root$samples %>% dplyr::select(RootShoot, RootLength_Total, LA_Total, Height, StemDiameter, NbLeaves, LSWC, fvfm, StomatalDensity, SRL, RootDiameter, LT, gmin, MEM1, MEM2, MEM3, MEM4, MajVLA, TLP) %>% scale(center = TRUE, scale = TRUE) %>% as.data.frame()# Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+trait_st$sample_id <- rownames(trait_st)
+trait_st <- left_join(trait_st, root$samples %>% dplyr::select(sample_id, name))
+names(trait_st)
+
+# Calculate variance partitioning
+vp4 <-varpart(Y = microbio.hel.bray ,  
+               ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin +  StomatalDensity + fvfm, # leaf traits
+               ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = trait_st)
+vp4
+showvarparts(3, bg=2:4)
+
+#Use function ‘dbrda’ to test significance of fractions of interest
+
+# Test fraction [a] using partial RDA:
+roottraits <- model.matrix(~SRL + RootDiameter + RootLength_Total, trait_st)[,-1]
+# Test fraction [b] using partial RDA:
+leaftraits <- model.matrix(~LSWC + LT + gmin + StomatalDensity + fvfm, trait_st)[,-1]
+# Test fraction [c] using partial RDA:
+location <- model.matrix(~MEM1 + MEM2 + MEM3 +MEM4, trait_st)[,-1]
+# Test fraction [d] using partial RDA:
+identity <- model.matrix(~name, trait_st)[,-1]
+# Test fraction [e] using partial RDA:
+planttraits <- model.matrix(~Height + NbLeaves + LA_Total, trait_st)[,-1]
+
+aFrac <- dbrda(microbio.hel.bray ~ roottraits)
+bFrac <- dbrda(microbio.hel.bray ~  leaftraits)
+cFrac <- dbrda(microbio.hel.bray ~  location)
+dFrac <- dbrda(microbio.hel.bray~ identity)
+eFrac <- dbrda(microbio.hel.bray~ planttraits)
+
+anova(aFrac, step=200, perm.max=200) #0.675
+anova(bFrac, step=200, perm.max=200) # 0.493
+anova(cFrac, step=200, perm.max=200) # 0.337
+anova(dFrac, step=200, perm.max=200) #  0.105
+anova(eFrac, step=200, perm.max=200) # 0.104
+
+# RsquareAdj gives the same result as component [a] of varpart
+a <- unlist(RsquareAdj(aFrac)[2])
+b <- unlist(RsquareAdj(bFrac)[2])
+c <- unlist(RsquareAdj(cFrac)[2])
+d <- unlist(RsquareAdj(dFrac)[2])
+
+
+```
+
+
+#merge for leaf ITS compo + dv
+
+```{r}
+leaf_ITS.2 <- rbind(leaf_ITS, data.plot.3, data.plot.4)
+#plot
+
+ITS.vp <- leaf_ITS.2 %>% 
+  mutate(Levels = factor(Levels, levels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))) %>%
+  ggplot(aes(fill=Levels, y=Variances, x=Organ)) + 
+  geom_bar(position="stack", stat="identity") +
+  theme_minimal(base_size = 22) +
+  ylab("") + xlab("")+
+  theme(legend.text = element_text(face = "italic"),legend.position = "bottom") +
+  scale_fill_manual("", values=c("#a7c957","#d4a373", "#a8dadc",  "#ffb4a2","#ffba08", "#BBBBBB", "#f8f9fa" ),
+                    breaks=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"),
+                    labels=c("Leaf traits","Root traits","Plant traits", "Species","Location", "Shared", "Residual"))  +
+  coord_flip() +
+  scale_x_discrete(labels = scales::label_parse())+
+  facet_wrap(~Diversity)+
+     ggtitle("Fungi - Variance partitioning")
+
+ggsave("./results/var_part_ITS.jpeg", ITS.vp)
+```
+
+# XXXXXXX
+
+# leaf 16S 
+
+```{r}
+load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+```
+
+
+## vp on Shannon
+
+```{r}
+
+#trait data
+trait_st <- leaf$samples %>% dplyr::select(RootShoot, RootLength_Total, LA_Total, Height, StemDiameter, NbLeaves, LSWC, fvfm, StomatalDensity, SRL, RootDiameter, LT, gmin, MEM1, MEM2, MEM3, MEM4, MajVLA, TLP) %>% scale(center = TRUE, scale = TRUE) %>% as.data.frame()# Each value in a column is standardized to a mean of 0 and standard deviation of 1. That is, each of the variables are normalized. This is another way to adjust for differences in the spread of values.
+trait_st$sample_id <- rownames(trait_st)
+trait_st <- left_join(trait_st, leaf$samples %>% dplyr::select(sample_id, name))
+names(trait_st)
+Shannon <- leaf$samples %>% dplyr::select(Shannon, sample_id)
+trait_st <- left_join(trait_st, Shannon)
+names(trait_st)
+
+
+# Calculate variance partitioning
+vp <-varpart(Y = leaf$samples$Shannon ,  ~SRL + RootDiameter + RootLength_Total , #root traits
+               ~LSWC + LT + gmin + NbLeaves + LA_Total + StomatalDensity + fvfm, # leaf traits
+               ~ MEM1 + MEM2 + MEM3 +MEM4, #location
+               ~name, #species' ID
+               data = trait_st)
+vp
+showvarparts(3, bg=2:4)
+plot(vp, digits = 3, Xnames = c("root traits", "leaf traits","species Id"))
+
+
+#use RDA to test significance of fractions of interest
+
+# Test fraction [a] using partial RDA:
+roottraits <- model.matrix(~SRL + RootDiameter + RootLength_Total, trait_st)[,-1]
+# Test fraction [b] using partial RDA:
+leaftraits <- model.matrix(~LSWC + LT + gmin + StomatalDensity + fvfm, trait_st)[,-1]
+# Test fraction [c] using partial RDA:
+location <- model.matrix(~MEM1 + MEM2 + MEM3 +MEM4, trait_st)[,-1]
+# Test fraction [d] using partial RDA:
+identity <- model.matrix(~name, trait_st)[,-1]
+# Test fraction [e] using partial RDA:
+planttraits <- model.matrix(~Height + NbLeaves + LA_Total, trait_st)[,-1]
+
+aFrac <- rda(trait_st$Shannon, roottraits)
+bFrac <- rda(trait_st$Shannon, leaftraits)
+cFrac <- rda(trait_st$Shannon, location)
+dFrac <- rda(trait_st$Shannon, identity)
+eFrac <- rda(trait_st$Shannon, planttraits)
+
+
+#Test fraction with anovo or anova.cca
+anova(aFrac, step=200, perm.max=200) #0.058 .
+anova(bFrac, step=200, perm.max=200) # 0.001 ***
+anova(cFrac, step=200, perm.max=200) #0.264
+anova(dFrac, step=200, perm.max=200) #0.001 ***
+anova(eFrac, step=200, perm.max=200) #0.01 **
+
+vp <-varpart(Y = leaf$samples$Shannon , 
+             ~LSWC + LT + gmin + StomatalDensity + fvfm,
+            
+               ~name, #species' ID
+                 ~ NbLeaves + LA_Total + Height, #plant traits
+               data = trait_st)
+vp
+```
+
+Individual fractions                                   
+[a] = X1 | X2+X3       5               0.00027     TRUE leaf
+[b] = X2 | X1+X3       6               0.00852     TRUE name
+[c] = X3 | X1+X2       3              -0.01503     TRUE plant traits
+[
