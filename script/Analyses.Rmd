@@ -903,7 +903,7 @@ row.names(natura_clean$samples) <- natura_clean$samples$sample_id
 save(natura_clean, file = "./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
 ```
 
-## drivers of alpha diversity
+## drivers of alpha diversity (Table 1)
 
 leaf
 ```{r}
@@ -945,13 +945,24 @@ rest <- env[,c(1,12)]
 env.scale <- cbind(env.scale, rest)
 #check collinearity with VIF on lm (<5)
 names(env.scale)
-lm.leaf.ITS <-lm(norm_Shannon~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+Name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
+
+lm.leaf.ITS <-lm(norm_Shannon~ norm_LSWC + 
+                          norm_StomatalDensity +
+                          norm_LT +
+                          norm_gmin + 
+                          norm_SLA + 
+                          norm_TotalLeafArea+
+                          Name+ 
+                          MEM1 + 
+                          MEM2+
+                          MEM3+
+                          MEM4, data=env.scale)
 summary(lm.leaf.ITS)
 vif(lm.leaf.ITS) #nothing to remove all <5
 lm.leaf.ITS.step<-stepAIC(lm.leaf.ITS,direction="both")
 vif(lm.leaf.ITS.step) # <10
 summary(lm.leaf.ITS.step)
-
+plot(lm.leaf.ITS.step)
 #table 
 # library(jtools)
 # c<- summ(lm.leaf.ITS.step)
@@ -1339,7 +1350,7 @@ Beta_option2
 ggsave("./results/Beta_ITS.jpeg", Beta_option2, width = 9, height = 7)
 ```
 
-##drivers of beta diversity
+##drivers of beta diversity (Figure 6 fungi)
 
 leaf
 ```{r}
@@ -1549,7 +1560,7 @@ row.names(natura_clean$samples) <- natura_clean$samples$sample_id
 save(natura_clean, file = "./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
 ```
 
-## drivers of alpha diversity
+## drivers of alpha diversity (Table 2) 
 
 leaf
 ```{r}
@@ -1976,7 +1987,7 @@ ggsave("./results/Beta_16S.jpeg", Beta_option2, width = 9, height = 7)
 ```
 
 
-## drivers of beta diversity
+## drivers of beta diversity (Figure 6 bacteria)
 
 leaf
 ```{r}
@@ -2113,7 +2124,7 @@ root_bacteria <- ggplot(rsquare_df, aes(x = traits, y = Adj.R.squared)) +
 
 ```
 
-Plot all 
+#Plot all (Figure 6 all)
 ```{r}
 library(patchwork)
 

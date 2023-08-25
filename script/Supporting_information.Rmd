@@ -1228,7 +1228,7 @@ is mainly determined by the long branches with very high node abundances, and al
 
 #Tables
 
-##Table S1 : Description of the bacterial and fungal endophyte dataset. Number of replicates, means number of reads and OTUs per replicate per species.
+##Table S1: Description of the bacterial and fungal endophyte dataset. Number of replicates, means number of reads and OTUs per replicate per species.
 
 *Bacteria*
 ```{r}
@@ -1379,7 +1379,7 @@ table %>%
 ```
 
 
-##Table S2. Soil composition of SF soils in Paracou station where seedlings were collected.
+##Table S2: Soil composition of SF soils in Paracou station where seedlings were collected.
 
 ```{r soil analysis natura, echo=FALSE, message=FALSE, warning=FALSE}
 library(ggplot2)
