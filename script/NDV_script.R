@@ -46,7 +46,7 @@ load("../resources/Metabarlist_natura_clean_16S.Rdata")# bacteria
 # comm.t=leaf$reads #nontranspose reads
 # bbs.sp.site <- comm.t
 # patches=nrow(bbs.sp.site)
-# rand <- 99
+# rand <- 999
 # 
 # # Create empty matrices/vectors, the dimensions of these matrices/vectors are determined based on the number of species (OTU) or sites (number of seedlings) in the data.
 # null.alphas <- matrix(NA, ncol(comm.t), rand)
@@ -113,7 +113,7 @@ root <- subset_metabarlist(natura_clean, table = "samples",
 comm.t.root=root$reads #don't transpose reads
 bbs.sp.site.root <- comm.t.root
 patches=nrow(bbs.sp.site.root)
-rand <- 99
+rand <- 999
 
 # Create empty matrices/vectors, the dimensions of these matrices/vectors are determined based on the number of species OTU) or sites (number of seedlings) in the data.
 null.alphas <- matrix(NA, ncol(comm.t.root), rand)
@@ -185,8 +185,8 @@ save(bray_abund_null_dev_fun_root,file="../results/bray_abund_null_dev_16S_root_
 #Plot-------------
 
 #ITS
-load("./results/null/bray_abund_null_dev_ITS_leaf_nontranspose.RData") #leaf
-load("./results/null/bray_abund_null_dev_ITS_root_nontranspose.RData") #root
+load("./results/null/bray_NDV_ITS_leaf.RData") #leaf
+load("./results/null/bray_NDV_ITS_root.RData") #root
 
 
 ndv_ITS_leaf <-data.frame(bray_abund_null_dev_fun)
@@ -214,8 +214,8 @@ ggsave("./results/plot_ITS_ndv.jpeg", plot_ITS)
 
 #16S
 
-load("./results/null/bray_abund_null_dev_16S_leaf_nontranspose.RData") #leaf
-load("./results/null/bray_abund_null_dev_16S_root_nontranspose.RData") #root
+load("./results/null/bray_NDV_16S_leaf.RData") #leaf
+load("./results/null/bray_NDV_16S_root.RData") #root
 
 
 boxplot(bray_abund_null_dev_fun, bray_abund_null_dev_fun_root,outline=FALSE)
