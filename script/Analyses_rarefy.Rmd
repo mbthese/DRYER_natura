@@ -337,7 +337,7 @@ tempData$imp$gmin
 
 Only   gmin 6.9 % nas, StomatalDensity 4,2 % na, and  RootDiameter 1,4 % nas were imputed. TLP 22 % too much and MajVLA 75 % too much and Nb_leaflets not imputed because it does not make any sense.
 
-## Trait variation (Appendix S13)
+## Trait variation (Figure 1)
 
 *log transformation* to help in addressing issues related to data distribution and scale. 
 
@@ -738,7 +738,7 @@ write.csv(traits_norm_together, "./resources/DRYER_natura_imputed_traits_norm.cs
 ```
 
 
-## PCA (Figure 4)
+## PCA (Figure 2)
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 
 ###########################################
@@ -884,39 +884,189 @@ save(natura_clean, file = "./resources/Metabarlist_natura_clean_ITS2_traits.Rdat
 load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
 leaf <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "leaf")
+
+leaf_data <- leaf$reads
+leaf_data <- as.data.frame(leaf_data)
+
+essai <-  leaf_data %>%
+  rownames_to_column(var = "group") %>%  
+  pivot_longer(cols = -group)
+
+min_n_seqs <- essai %>%
+  group_by(group)%>%
+  summarize(nseq=sum(value))%>%
+  summarize(min = min(nseq)) %>%
+  pull(min) # 6317
+
+essai_df <- essai %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
+
+
+rownames(essai_df) <- essai_df$group
+essai <- essai_df[,-1]
+
+
+rarefy(essai, min_n_seqs) %>%
+  as_tibble(rownames="Group") %>%
+  dplyr::select(Group, vegan=value)
+
+
+leaf_rarefy <- rrarefy(essai, min_n_seqs) %>%
+  as_tibble(rownames = "Group") %>%
+              pivot_longer(-Group)
+
+
+#now for roots
+
 root <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "root")
+
+root_data <- root$reads
+root_data <- as.data.frame(root_data)
+
+essai <-  root_data %>%
+  rownames_to_column(var = "group") %>%  
+  pivot_longer(cols = -group)
+
+min_n_seqs_roots <- essai %>%
+  group_by(group)%>%
+  summarize(nseq=sum(value))%>%
+  summarize(min = min(nseq)) %>%
+  pull(min) # 2434
+
+essai_df <- essai %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
+
+
+rownames(essai_df) <- essai_df$group
+essai <- essai_df[,-1]
+
+
+rarefy(essai, min_n_seqs_roots) %>%
+  as_tibble(rownames="Group") %>%
+  dplyr::select(Group, vegan=value)
+
+
+root_rarefy <- rrarefy(essai, min_n_seqs_roots) %>%
+  as_tibble(rownames = "Group") %>%
+              pivot_longer(-Group)
 ```
 
-## alpha diversity
+## alpha diversity 
 
 ```{r Hill numbers diversity}
- 
-#Hill numbers, using HillR package
-Shannon_fungi_natura_clean <-hill_taxa(natura_clean$reads,q=1) #equivalent of Shannon entropy
+leaf_rarefy_df <- leaf_rarefy %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
 
-df <- Shannon_fungi_natura_clean %>% 
+rownames(leaf_rarefy_df) <- leaf_rarefy_df$Group
+leaf_rarefy_df <- leaf_rarefy_df[,-1]
+
+#Hill numbers, using HillR package
+Shannon_fungi_leaf_rarefy <-hill_taxa(leaf_rarefy_df,q=1) #equivalent of Shannon entropy
+
+df <- Shannon_fungi_leaf_rarefy %>% 
   enframe() %>%
-  rename(Shannon = value, 
+  rename(Shannon_rarefy = value, 
          sample_id = name)
 
-natura_clean$samples <- left_join(natura_clean$samples, df)
+leaf$samples <- left_join(leaf$samples, df, by="sample_id")
 
-#save data with alpha diversity measures
-row.names(natura_clean$samples) <- natura_clean$samples$sample_id
+#root
+root_rarefy_df <- root_rarefy %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
 
-#with traits & indices
-save(natura_clean, file = "./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
+rownames(root_rarefy_df) <- root_rarefy_df$Group
+root_rarefy_df <- root_rarefy_df[,-1]
+
+#Hill numbers, using HillR package
+Shannon_fungi_root_rarefy <-hill_taxa(root_rarefy_df,q=1) #equivalent of Shannon entropy
+
+df <- Shannon_fungi_root_rarefy %>% 
+  enframe() %>%
+  rename(Shannon_rarefy = value, 
+         sample_id = name)
+
+root$samples <- left_join(root$samples, df, by="sample_id")
+
 ```
+
+#plot
+```{r}
+shapiro.test(leaf$samples$Shannon_rarefy)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.9155, p-value = 0.000151
+
+#not normally distributed therefore i use BoxCox tranformation
+library(MASS)
+bc<-boxcox(lm(leaf$samples$Shannon_rarefy~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((leaf$samples$Shannon_rarefy^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(leaf$samples$Shannon_rarefy^lambda-1)/lambda
+leaf$samples$norm_Shannon_rarefy <-norm_Shannon
+
+shannon.anova.leaf<-aov(norm_Shannon_rarefy ~ Name, leaf$samples)
+summary(shannon.anova.leaf) #8.74e-07 ***
+
+alpha_ITS_plot_leaf_rarefy <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon_rarefy, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  ylab(expression(paste("Alpha diversity / fungi")))+ #\n jump line
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value < 0.001"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
+
+#root
+shapiro.test(root$samples$Shannon_rarefy)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.91114, p-value = 0.0004347
+
+#not normally distributed therefore i use BoxCox tranformation
+library(MASS)
+bc<-boxcox(lm(root$samples$Shannon_rarefy~1))
+(lambda <- bc$x[which.max(bc$y)])
+new_model <- lm(((root$samples$Shannon_rarefy^lambda-1)/lambda) ~ 1)
+qqnorm(new_model$residuals)
+qqline(new_model$residuals)
+norm_Shannon<-(root$samples$Shannon_rarefy^lambda-1)/lambda
+root$samples$norm_Shannon_rarefy <-norm_Shannon
+
+shannon.anova.root<-aov(norm_Shannon_rarefy ~ Name, root$samples)
+summary(shannon.anova.root) #0.00349 **
+
+alpha_ITS_plot_root_rarefy <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon_rarefy, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  ylab(expression(paste("Alpha diversity / fungi")))+ #\n jump line
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value < 0.01"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
+
+#combine plots ITS leaf and root
+alpha_ITS_plot_rarefy <- ggarrange(alpha_ITS_plot_leaf_rarefy ,alpha_ITS_plot_root_rarefy , labels = c('A', 'B'), ncol = 2, nrow = 1, legend = "none", label.y = c(1,1), font.label = list(size=18))
+alpha_ITS_plot_rarefy
+
+```
+
 
 ## drivers of alpha diversity (Table 1)
-
-leaf
-```{r}
-load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
-leaf <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "leaf")
-```
 
 Traits 
 
@@ -925,20 +1075,20 @@ Traits
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
 traits_norm$code <- as.character(traits_norm$code)
-traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon_rarefy), traits_norm)
 
 #test normality shannon
-ggqqplot(traits$Shannon)
-ggdensity(traits$Shannon)
-shapiro.test(traits$Shannon) # non normal p-value<0.0001
+ggqqplot(traits$Shannon_rarefy)
+ggdensity(traits$Shannon_rarefy)
+shapiro.test(traits$Shannon_rarefy) # non normal p-value<0.0001
 #transform Shannon to meet normality
-bc<-boxcox(traits$Shannon~1)
+bc<-boxcox(traits$Shannon_rarefy~1)
 (lambda <- bc$x[which.max(bc$y)])
 ## 2
-new_model <- lm(((traits$Shannon^lambda-1)/lambda) ~ 1)
+new_model <- lm(((traits$Shannon_rarefy^lambda-1)/lambda) ~ 1)
 qqnorm(new_model$residuals)
 qqline(new_model$residuals)
-traits$norm_Shannon<-(traits$Shannon^lambda-1)/lambda
+traits$norm_Shannon_rarefy<-(traits$Shannon_rarefy^lambda-1)/lambda
        
 #traits
 names(traits)
@@ -952,7 +1102,7 @@ env.scale <- cbind(env.scale, rest)
 #check collinearity with VIF on lm (<5)
 names(env.scale)
 
-lm.leaf.ITS <-lm(norm_Shannon~ norm_LSWC + 
+lm.leaf.ITS <-lm(norm_Shannon_rarefy~ norm_LSWC + 
                           norm_StomatalDensity +
                           norm_LT +
                           norm_gmin + 
@@ -983,20 +1133,10 @@ RsquareAdj(lm.leaf.ITS.step)
 library(jtools)
 table <- data.frame(summ(lm.leaf.ITS.step)$coeftable)
 
-write.csv(table, "Shannon_leaf_fungi.csv")
+write.csv(table, "Shannon_leaf_fungi_rarefy.csv")
 ```
 
 Root
-
-```{r}
-load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
-root <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "root")
-```
-
-
-Test for normality for Y is not met. But It's not the distribution of yi
- that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
 
 Traits 
 
@@ -1005,20 +1145,20 @@ Traits
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
 traits_norm$code <- as.character(traits_norm$code)
-traits <- left_join(root$samples %>% dplyr::select(code, Shannon), traits_norm)
+traits <- left_join(root$samples %>% dplyr::select(code, Shannon_rarefy), traits_norm)
 
 #test normality shannon
-ggqqplot(traits$Shannon)
-ggdensity(traits$Shannon)
-shapiro.test(traits$Shannon) # non normal p-value<0.0001
+ggqqplot(traits$Shannon_rarefy)
+ggdensity(traits$Shannon_rarefy)
+shapiro.test(traits$Shannon_rarefy) # non normal p-value<0.0001
 #transform Shannon to meet normality
-bc<-boxcox(traits$Shannon~1)
+bc<-boxcox(traits$Shannon_rarefy~1)
 (lambda <- bc$x[which.max(bc$y)])
 ## 2
-new_model <- lm(((traits$Shannon^lambda-1)/lambda) ~ 1)
+new_model <- lm(((traits$Shannon_rarefy^lambda-1)/lambda) ~ 1)
 qqnorm(new_model$residuals)
 qqline(new_model$residuals)
-traits$norm_Shannon<-(traits$Shannon^lambda-1)/lambda
+traits$norm_Shannon_rarefy<-(traits$Shannon_rarefy^lambda-1)/lambda
        
 
 #traits
@@ -1033,7 +1173,7 @@ env.scale <- cbind(env.scale, rest)
        
 #check collinearity with VIF on lm (<5)
 names(env.scale)
-lm.root.ITS <-lm(norm_Shannon~ norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
+lm.root.ITS <-lm(norm_Shannon_rarefy~ norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
 summary(lm.root.ITS)
 vif(lm.root.ITS) #nothing to remove all <5
 lm.root.ITS.step<-stepAIC(lm.root.ITS,direction="both")
@@ -1056,11 +1196,11 @@ RsquareAdj(lm.root.ITS.step)
 
 table <- data.frame(summ(lm.root.ITS.step)$coeftable)
 
-write.csv(table, "Shannon_root_fungi.csv")
+write.csv(table, "Shannon_root_fungi_rarefy.csv")
 ```
 
 
-## beta diversity (Figure 1)
+## beta diversity (Figure 3)
 
 How similar in microbial composition each sample is to other samples of different types, or between sample variability.
 
@@ -1071,12 +1211,25 @@ Calculate beta
 
 #dis.hell.bray <- vegdist(decostand(natura_clean$reads, method = "hellinger"),   method = "bray") #hellinger transformation before calculating a dissimilar matrix based on the bray method.  Hellinger transformation converts species abundances from absolute to relative values (i.e. standardizes the abundances to sample totals) and then square roots them.
 
-hill <- hill_taxa_parti_pairwise(natura_clean$reads,q=1,output="matrix", pairs = "full") 
+dim(leaf_rarefy_df)
+dim(root_rarefy_df)
 
-hill.beta  <- hill$TD_beta
-hill.beta.dist <- as.dist(hill.beta)
+leaf_rarefy_df$Group <- rownames(leaf_rarefy_df)
+root_rarefy_df$Group <- rownames(root_rarefy_df)
+
+natura_rarefy <- left_join(leaf_rarefy_df, root_rarefy_df, by = "Group")
+
+rownames(natura_rarefy) <- natura_rarefy$Group
+
+natura_rarefy <- natura_rarefy %>% dplyr::select(-Group) %>%
+  as.matrix()
+
+hill <- hill_taxa_parti_pairwise(natura_rarefy,q=1,output="matrix", pairs = "full") 
+
+hill.beta.leaf  <- hill$TD_beta
+hill.beta.leaf.dist <- as.dist(hill.beta.leaf)
 #hill.dist  <- dist(hill.dist)   #dist() will actually calculate the distance matrix whereas as.dist() only will try to coerce a object to a distance matrix. 
-mod <- betadisper(d = hill.beta.dist, group = as.factor(natura_clean$samples$organ), type = "median")
+mod <- betadisper(d = hill.beta.leaf.dist, group = as.factor(leaf$samples$organ), type = "median")
 mod
 
 # tests if centroid distances are significantly different from each other
@@ -1356,13 +1509,10 @@ Beta_option2
 ggsave("./results/Beta_ITS.jpeg", Beta_option2, width = 9, height = 7)
 ```
 
-##drivers of beta diversity (Appendix S15 fungi)
+##drivers of beta diversity (Figure 6 fungi)
 
 leaf
 ```{r}
-load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
-leaf <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "leaf")
 
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
@@ -1388,7 +1538,7 @@ names(env.scale)
 
 # Compute Horn dissimilarity matrix with HillR package to stay in Hill number format, q==1 (Chui & Choa 2014)
 
-leaf_dist <-hill_taxa_parti_pairwise(leaf$reads,q=1,output="matrix", pairs = "full") 
+leaf_dist <-hill_taxa_parti_pairwise(leaf_rarefy_df,q=1,output="matrix", pairs = "full") 
 
 #We are only interested to retrieve beta-diversity, found in TD_beta
 null_model <- dbrda(leaf_dist$TD_beta~ 1, data = env.scale) # model containing only species matrix and intercept
@@ -1440,10 +1590,6 @@ leaf_fungi <- ggplot(rsquare_ITS_leaf, aes(x = traits, y = Adj.R.squared)) +
 ```
 root
 ```{r}
-load("./resources/Metabarlist_natura_clean_ITS2_traits_alpha.Rdata")
-root <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "root" & natura_clean$samples$Genus != "Tachigali") #because too few individuals
-
 
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
@@ -1469,7 +1615,7 @@ names(env.scale)
 
 # Compute Horn dissimilarity matrix with HillR package to stay in Hill number format, q==1 (Chui & Choa 2014)
 
-root_dist <-hill_taxa_parti_pairwise(root$reads,q=1,output="matrix", pairs = "full") 
+root_dist <-hill_taxa_parti_pairwise(root_rarefy_df,q=1,output="matrix", pairs = "full") 
 
 #We are only interested to retrieve beta-diversity, found in TD_beta
 null_model <- dbrda(root_dist$TD_beta~ 1, data = env.scale) # model containing only species matrix and intercept
@@ -1509,71 +1655,172 @@ load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
 ## alpha diversity
 
 ```{r}
-set.seed(1234)
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
 
-#rarefaction for leaves
-S <- specnumber(x = leaf$reads) # observed number of species
-(raremax <- min(rowSums(x = leaf$reads))) #6317 for leaves
-Srare <- rarefy(x = leaf$reads, raremax) #generates one randomly rarefied community data frame or vector of given sample size.
-leaf_plot <- plot(S, Srare, xlab = "Observed No. of Species", ylab = "Rarefied No. of Species")
-abline(0, 1)
-leaf_rare <- rarecurve(x = leaf$reads, step = 20, sample = raremax, col = "blue", cex = 0.6)
+leaf_data <- leaf$reads
+leaf_data <- as.data.frame(leaf_data)
 
-leaf.raref = hill_rarefaction(leaf, nboot = 20, nsteps = 10)
-head(leaf.raref$hill_table)
-gghill_rarefaction(leaf.raref)
-material <- leaf$samples$Genus[match(leaf$pcrs$sample_id, rownames(leaf$samples))] # Define a vector containing the Material info for each pcrs
-material <- setNames(material,rownames(leaf$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
-leaf_plot2 <- gghill_rarefaction(leaf.raref, group=material)  # Plot
-leaf_plot2 + scale_fill_manual(values = c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")) +
-  labs(color="Leaf fungi rarefaction curves colored by species")
+essai <-  leaf_data %>%
+  rownames_to_column(var = "group") %>%  
+  pivot_longer(cols = -group)
 
-#rarefaction for root
-S <- specnumber(x = root$reads) # observed number of species
-(raremax <- min(rowSums(x = root$reads))) #2434 for roots
-Srare <- rarefy(x = root$reads, raremax) #generates one randomly rarefied community data frame or vector of given sample size.
-root_plot <- plot(S, Srare, xlab = "Observed No. of Species", ylab = "Rarefied No. of Species")
-abline(0, 1)
-root_rare <- rarecurve(x = root$reads, step = 20, sample = raremax, col = "blue", cex = 0.6)
+min_n_seqs <- essai %>%
+  group_by(group)%>%
+  summarize(nseq=sum(value))%>%
+  summarize(min = min(nseq)) %>%
+  pull(min) # 4696
 
-root.raref = hill_rarefaction(root, nboot = 20, nsteps = 10)
-head(root.raref$hill_table)
-gghill_rarefaction(root.raref)
-material <- root$samples$Genus[match(root$pcrs$sample_id, rownames(root$samples))] # Define a vector containing the Material info for each pcrs
-material <- setNames(material,rownames(root$pcrs))# Use of gghill_rarefaction requires a vector with named pcrs
-root_plot2 <- gghill_rarefaction(root.raref, group=material)  # Plot
-root_plot2 + scale_fill_manual(values = c("#F8766D", "#C49A00", "#53B400", "#00C094", "#00B6EB", "#A58AFF", "#FB61D7")) +
-  labs(color="root fungi rarefaction curves colored by species")
+essai_df <- essai %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
+
+
+rownames(essai_df) <- essai_df$group
+essai <- essai_df[,-1]
+
+
+rarefy(essai, min_n_seqs) %>%
+  as_tibble(rownames="Group") %>%
+  dplyr::select(Group, vegan=value)
+
+
+leaf_rarefy <- rrarefy(essai, min_n_seqs) %>%
+  as_tibble(rownames = "Group") %>%
+              pivot_longer(-Group)
+
+
+#now for roots
+
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+root_data <- root$reads
+root_data <- as.data.frame(root_data)
+
+essai <-  root_data %>%
+  rownames_to_column(var = "group") %>%  
+  pivot_longer(cols = -group)
+
+min_n_seqs_roots <- essai %>%
+  group_by(group)%>%
+  summarize(nseq=sum(value))%>%
+  summarize(min = min(nseq)) %>%
+  pull(min) # 1195
+
+essai_df <- essai %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
+
+
+rownames(essai_df) <- essai_df$group
+essai <- essai_df[,-1]
+
+
+rarefy(essai, min_n_seqs_roots) %>%
+  as_tibble(rownames="Group") %>%
+  dplyr::select(Group, vegan=value)
+
+
+root_rarefy <- rrarefy(essai, min_n_seqs_roots) %>%
+  as_tibble(rownames = "Group") %>%
+              pivot_longer(-Group)
 ```
 
 
 ```{r Hill numbers diversity}
  
-#Hill numbers, using HillR package
-Shannon_fungi_natura_clean <-hill_taxa(natura_clean$reads,q=1) #equivalent of Shannon entropy
+leaf_rarefy_df <- leaf_rarefy %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
 
-df <- Shannon_fungi_natura_clean %>% 
+rownames(leaf_rarefy_df) <- leaf_rarefy_df$Group
+leaf_rarefy_df <- leaf_rarefy_df[,-1]
+
+#Hill numbers, using HillR package
+Shannon_bacteria_leaf_rarefy <-hill_taxa(leaf_rarefy_df,q=1) #equivalent of Shannon entropy
+
+df <- Shannon_bacteria_leaf_rarefy %>% 
   enframe() %>%
-  rename(Shannon = value, 
+  rename(Shannon_rarefy = value, 
          sample_id = name)
 
-natura_clean$samples <- left_join(natura_clean$samples, df)
+leaf$samples <- left_join(leaf$samples, df, by="sample_id")
 
-#save data with alpha diversity measures
-row.names(natura_clean$samples) <- natura_clean$samples$sample_id
+#root
+root_rarefy_df <- root_rarefy %>% pivot_wider(names_from = "name", values_from = "value") %>%
+  as.data.frame()
 
-#with traits & indices
-save(natura_clean, file = "./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
+rownames(root_rarefy_df) <- root_rarefy_df$Group
+root_rarefy_df <- root_rarefy_df[,-1]
+
+#Hill numbers, using HillR package
+Shannon_bacteria_root_rarefy <-hill_taxa(root_rarefy_df,q=1) #equivalent of Shannon entropy
+
+df <- Shannon_bacteria_root_rarefy %>% 
+  enframe() %>%
+  rename(Shannon_rarefy = value, 
+         sample_id = name)
+
+root$samples <- left_join(root$samples, df, by="sample_id")
+
+```
+
+#plot
+```{r}
+shapiro.test(leaf$samples$Shannon_rarefy)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  leaf$samples$Shannon
+# W = 0.99177, p-value = 0.9337
+
+
+shannon.anova.leaf<-aov(Shannon_rarefy ~ Name, leaf$samples)
+summary(shannon.anova.leaf) #2.38e-10 ******
+
+alpha_16S_plot_leaf_rarefy <- leaf$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon_rarefy, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  ylab(expression(paste("Alpha diversity / bacteria")))+ #\n jump line
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value < 0.001"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
+
+#root
+shapiro.test(root$samples$Shannon_rarefy)
+# 
+# 	Shapiro-Wilk normality test
+# 
+# data:  root$samples$Shannon
+# W = 0.98396, p-value = 0.5837
+
+shannon.anova.root<-aov(Shannon_rarefy ~ Name, root$samples)
+summary(shannon.anova.root) #0.544
+
+alpha_16S_plot_root_rarefy <- root$samples  %>%
+   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+  ggplot() +
+  aes(x = name, y = Shannon_rarefy, fill = organ) +
+  geom_boxplot() +
+  scale_fill_manual(
+    values = c(leaf = "#6bbf59",
+    root = "#E79F02"))+
+  ylab(expression(paste("Alpha diversity / bacteria")))+ #\n jump line
+  theme_minimal(base_size = 20)+
+  geom_text(aes(x = 3, y = 250, label = "p-value = 0.5"), color = "black", size = 6)+
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
+
+#combine plots 16S leaf and root
+alpha_16S_plot_rarefy <- ggarrange(alpha_16S_plot_leaf_rarefy ,alpha_16S_plot_root_rarefy , labels = c('C', 'D'), ncol = 2, nrow = 1, legend = "none", label.y = c(1,1), font.label = list(size=18))
+alpha_16S_plot_rarefy
+
 ```
 
 ## drivers of alpha diversity (Table 2) 
 
-leaf
-```{r}
-load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
-leaf <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "leaf")
-```
 
 Traits 
 
@@ -1582,12 +1829,12 @@ Traits
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
 traits_norm$code <- as.character(traits_norm$code)
-traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon), traits_norm)
+traits <- left_join(leaf$samples %>% dplyr::select(code, Shannon_rarefy), traits_norm)
 
 #test normality shannon
-ggqqplot(traits$Shannon)
-ggdensity(traits$Shannon)
-shapiro.test(traits$Shannon) # normal
+ggqqplot(traits$Shannon_rarefy)
+ggdensity(traits$Shannon_rarefy)
+shapiro.test(traits$Shannon_rarefy) # normal
 
 #traits
 names(traits)
@@ -1600,7 +1847,7 @@ rest <- env[,c(1,2)]
 env.scale <- cbind(env.scale, rest)
 #check collinearity with VIF on lm (<5)
 names(env.scale)
-lm.leaf.16S <-lm(Shannon~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+Name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
+lm.leaf.16S <-lm(Shannon_rarefy~ norm_LSWC + norm_StomatalDensity +norm_LT +norm_gmin + norm_SLA + norm_TotalLeafArea+Name+ MEM1 + MEM2+MEM3+MEM4, env.scale)
 summary(lm.leaf.16S)
 vif(lm.leaf.16S) #nothing to remove all <5
 lm.leaf.16S.step<-stepAIC(lm.leaf.16S,direction="both")
@@ -1622,17 +1869,10 @@ RsquareAdj(lm.leaf.16S.step)
 library(jtools)
 table <- data.frame(summ(lm.leaf.16S.step)$coeftable)
 
-write.csv(table, "Shannon_leaf_bacteria.csv")
+write.csv(table, "Shannon_leaf_bacteria_rarefy.csv")
 ```
 
 Root
-
-```{r}
-load("./resources/Metabarlist_natura_clean_16S_traits_alpha.Rdata")
-root <- subset_metabarlist(natura_clean, table = "samples",
-                          indices = natura_clean$samples$organ == "root")
-```
-
 
 Test for normality for Y is not met. But It's not the distribution of yi
  that matters -- but the distribution of the error terms (the residuals from the model), so let's continue without normlity of Y cf: https://stats.stackexchange.com/questions/11351/left-skewed-vs-symmetric-distribution-observed/11352#11352 
@@ -1644,7 +1884,7 @@ Traits
 #traits normalized
 traits_norm <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
 traits_norm$code <- as.character(traits_norm$code)
-traits <- left_join(root$samples %>% dplyr::select(code, Shannon), traits_norm)
+traits <- left_join(root$samples %>% dplyr::select(code, Shannon_rarefy), traits_norm)
 
 #test normality shannon
 ggqqplot(traits$Shannon)
@@ -1663,7 +1903,7 @@ env.scale <- cbind(env.scale, rest)
        
 #check collinearity with VIF on lm (<5)
 names(env.scale)
-lm.root.16S <-lm(Shannon~ norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
+lm.root.16S <-lm(Shannon_rarefy~ norm_RootTissueDensity +  norm_SRL + norm_RootDiameter + MEM1+MEM2+MEM3+MEM4, env.scale)
 summary(lm.root.16S)
 vif(lm.root.16S) #nothing to remove all <5
 lm.root.16S.step<-stepAIC(lm.root.16S,direction="both")
@@ -1686,11 +1926,11 @@ RsquareAdj(lm.root.16S.step)
 
 table <- data.frame(summ(lm.root.16S.step)$coeftable)
 
-write.csv(table, "Shannon_root_bacteria.csv")
+write.csv(table, "Shannon_root_bacteria_rarefy.csv")
 ```
 
 
-## beta diversity (Figure 2)
+## beta diversity (Figure 4)
 
 ```{r}
 # calculate Bray-Curtis distance using the vegan package
@@ -1993,7 +2233,7 @@ ggsave("./results/Beta_16S.jpeg", Beta_option2, width = 9, height = 7)
 ```
 
 
-## drivers of beta diversity (Appendix S15 bacteria)
+## drivers of beta diversity (Figure 6 bacteria)
 
 leaf
 ```{r}
@@ -2132,7 +2372,7 @@ root_bacteria <- ggplot(rsquare_df, aes(x = traits, y = Adj.R.squared)) +
 
 ```
 
-#Plot all (Appendix S15 all)
+#Plot all (Figure 6 all)
 ```{r}
 library(patchwork)
 
@@ -2142,7 +2382,7 @@ ggsave(filename = "beta_drivers2.jpeg", plot= beta_drivers_plot, bg= "white", wi
 
 ```
 
-#NDV (Figure 3)
+#NDV (Figure 5)
 
 It is based on the approach described in the paper by Tucker et al. (2016), and it is an adaptation of the method proposed by Stegen et al. (2012).
 
