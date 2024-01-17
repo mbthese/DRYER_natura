@@ -264,7 +264,7 @@ table_root$organ <- "root"
 
 #join root and leaf table for bacteria
 
-table_bacteria <- rbind(table_root, table_leaf) %>%
+table_bacteria <- rbind(table_leaf, table_root) %>%
   relocate(organ, .before =name) %>%
   relocate(n, .before = mean_nb_reads) %>%
   mutate(name = gsub("_", " ", name)) %>%
@@ -329,7 +329,7 @@ table_root$organ <- "root"
 
 #join root and leaf table
 
-table_fungi <- rbind(table_root, table_leaf) %>%
+table_fungi <- rbind(table_leaf, table_root) %>%
   relocate(organ, .before =name) %>%
   relocate(n, .before = mean_nb_reads) %>%
   mutate(name = gsub("_", " ", name)) %>%
@@ -345,7 +345,7 @@ table <- left_join(table_bacteria, table_fungi)
 table %>%
   dplyr::select(-organ) %>% #remove it otherwise redundant
   kbl(escape = FALSE) %>% #title
-  pack_rows(index = c("root" = 7, "leaf" = 7)) %>% #to group by organ
+  pack_rows(index = c("leaf" = 7, "root" = 7)) %>% #to group by organ
   row_spec(0, bold = TRUE) %>% #first row is in bold
   column_spec(1, italic = T, width = "1em") %>% #make species name in italic
   kable_classic(html_font = "Cambria") %>%
@@ -1218,7 +1218,7 @@ ggsave("./results/Order_bacteria.jpeg", Order, width = 8, height = 10)
 
 
 
-##Appendix S12: Alpha diversity of seven tropical tree seedlings.
+##Appendix S12: Diversity of seven tropical tree seedlings.
 
 *Bacteria*
 ```{r}
@@ -1265,7 +1265,7 @@ alpha_16S_plot_leaf <- leaf$samples  %>%
   scale_fill_manual(
     values = c(leaf = "#6bbf59",
     root = "#E79F02"))+
- ylab(expression(paste("Alpha diversity / bacteria")))+
+ ylab(expression(paste("Diversity / bacteria")))+
   theme_minimal(base_size = 20)+
     geom_text(aes(x = 3, y = 150, label = "p-value = 0.8"), color = "black", size = 6)+
   theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom") 
@@ -1278,7 +1278,7 @@ alpha_16S_plot_root <- root$samples  %>%
   scale_fill_manual(
     values = c(leaf = "#6bbf59",
     root = "#E79F02"))+
-  # ylab(expression(paste("Alpha diversity \n bacteria")))+
+  # ylab(expression(paste("Diversity \n bacteria")))+
   theme_minimal(base_size = 20)+
    geom_text(aes(x = 3, y = 110, label = "p-value = 0.4"), color = "black", size = 6)+
   theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_blank()) 
@@ -1334,9 +1334,9 @@ qqline(new_model$residuals)
 norm_Shannon<-(root$samples$Shannon^lambda-1)/lambda
 root$samples$norm_Shannon <-norm_Shannon 
 
-shannon.anova.leaf<-aov(norm_Shannon ~ name, leaf$samples)
+shannon.anova.leaf<-aov(norm_Shannon ~ Name, leaf$samples)
 summary(shannon.anova.leaf) #0.906 (before normalisation) 0.902 after boxcox
-shannon.anova.root<-aov(norm_Shannon ~ name, root$samples)
+shannon.anova.root<-aov(norm_Shannon ~ Name, root$samples)
 summary(shannon.anova.root) # 0.032 * (before normalisation) 0.0376  after boxcox
 
 #Tukey for roots
@@ -1353,7 +1353,7 @@ alpha_ITS_plot_leaf <- leaf$samples  %>%
   scale_fill_manual(
     values = c(leaf = "#6bbf59",
     root = "#E79F02"))+
-  ylab(expression(paste("Alpha diversity / fungi")))+ #\n jump line
+  ylab(expression(paste("Diversity / fungi")))+ #\n jump line
   theme_minimal(base_size = 20)+
   geom_text(aes(x = 3, y = 250, label = "p-value = 0.9"), color = "black", size = 6)+
   theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
@@ -1380,7 +1380,7 @@ plots
 alpha_plot <- ggarrange(alpha_ITS_plot_leaf,alpha_ITS_plot_root, alpha_16S_plot_leaf,alpha_16S_plot_root, labels = c('A', 'B', 'C', 'D'), ncol = 2, nrow = 2, legend = "none", label.y = c(1,1,1.15,1.15), font.label = list(size=18))
 alpha_plot
 
-ggsave("./results/SI_Hill_alpha_diversity.jpeg", alpha_plot, width = 12, height =8)
+ggsave("./results/SI_Hill_diversity.jpeg", alpha_plot, width = 12, height =8)
 ```
 
 ##Appendix S13 : Trait variation in 72 individuals among seven SF seedlings species.
@@ -1459,6 +1459,6 @@ ggsave(filename = "contributionPCA.png", plot = contri, bg = "white", width = 12
 
 
 
-##Appendix S15 : Drivers of beta-diversity.
+##Appendix S15 : Drivers of composition.
 
 **beta drivers**in main script Analyses.
