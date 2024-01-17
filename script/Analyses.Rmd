@@ -1124,8 +1124,8 @@ pcoa_beta_its_all <- ggplot() +
   geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
   geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 11.1%') +
-  xlab('PCoA 1 - 5.5%') +
+  ylab('PCoA 2 - 5.5%') +
+  xlab('PCoA 1 - 11.1%') +
   theme(legend.position = 'none') + #remove legend
   # ggtitle("Beta diversity - ITS")+
    # Set the colors for the two groups
