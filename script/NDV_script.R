@@ -198,8 +198,10 @@ boxplot(bray_abund_null_dev_fun, bray_abund_null_dev_fun_root,outline=FALSE)
 t.test(bray_abund_null_dev_fun,bray_abund_null_dev_fun_root, alternative = "two.sided", var.equal = FALSE)
 
 plot_ITS <- ggplot()+
-  geom_violin(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE) +
-  geom_violin(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  geom_boxplot(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73", alpha=0.6) +
+  geom_point(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", position="jitter")+
+  geom_boxplot(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",  alpha=0.6)+
+  geom_point(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black", position="jitter")+
   scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
  # ggtitle("Fungi null beta-distribution")+
   annotate("text",x=1.5,y=1,label="t = -18.01, df = 106", size = 6)+
@@ -227,8 +229,10 @@ colnames(ndv_16S_leaf)<-c("NDV")
 colnames(ndv_16S_root)<-c("NDV")
 
 plot_16S <- ggplot()+
-  geom_violin(data=ndv_16S_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE) +
-  geom_violin(data=ndv_16S_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",draw_quantiles = c(0.25,0.5,0.75),trim=FALSE)+
+  geom_boxplot(data=ndv_16S_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73", alpha=0.6) +
+  geom_point(data=ndv_16S_leaf,aes(x=factor(0),y=NDV), position="jitter")+
+  geom_boxplot(data=ndv_16S_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",alpha=0.6)+
+  geom_point(data=ndv_16S_root,aes(x=factor(1),y=NDV), position="jitter")+
   scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
   #ggtitle("Bacteria null beta-distribution")+
   annotate("text",x=1.5,y=1,label="t = -1.8, df = 103", size = 6)+
@@ -237,10 +241,17 @@ plot_16S <- ggplot()+
   theme(axis.title.x = element_blank())+
   ylim(0.2, 1.05)
 
-plot_16S
-ggsave("./results/plot_16S_ndv_nontranspose_boxplot.jpeg", plot_16S)
+#plot together
 
-NDV_final_plot <- ggarrange(plot_16S, plot_ITS, labels = c("Bacteria", "Fungi"))
-NDV_final_plot
+text<- "A. Niche or neutral processes"
+# Create a text grob
+tgrob <- text_grob(text,size = 20)
+# Draw the text
+plot_0 <- as_ggplot(tgrob) + theme(plot.margin = margin(0,0,0,2, "cm"))
 
-ggsave("./results/null/plot_final_ndv.jpeg", NDV_final_plot, width = 10, height = 8 )
+
+NDV_plot <- ggarrange(plot_0,NULL, plot_16S,plot_ITS,
+                      labels = c("", "", "Bacteria", "Fungi"),                      ncol = 2, nrow = 2, font.label = list(face="italic"), heights= c(1,3))
+
+NDV_plot
+ggsave(filename = "NDV.png", plot = NDV_plot, bg = "white", width = 10, height = 8, dpi = 600)

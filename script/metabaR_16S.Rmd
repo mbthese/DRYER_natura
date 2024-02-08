@@ -1317,6 +1317,179 @@ Order <- ggarrange(E, F, ncol = 1, nrow = 2)
 ggsave("./results/Order_bacteria.jpeg", Order, width = 8, height = 10)
 ```
 
+##Genus
+```{r}
+load("./results/Metabarlist_natura_clean_16S.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+
+# Aggregate the metabarlist at the class level
+leaf_genus <-  aggregate_motus(leaf, groups= leaf$motus$Genus)
+
+leaf_genus$samples$Name <- paste0(substr(leaf_genus$samples$Genus, 1, 1), ".", " ", leaf_genus$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(leaf_genus$reads, by = list(
+    paste(leaf_genus$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Genus", "Value")
+
+# Calculate the total abundance per Class
+Genus_abundance <- aggregate(Value ~ Genus, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Genus_abundance$Value)
+Genus_proportions <- Genus_abundance %>% mutate(Proportion = Value / total_sum *100)
+Genus_proportions
+
+top_10_proportions <- Genus_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+                 
+# Sort the data by the total abundance in descending Genus
+top_phyla <- head(Genus_abundance$Genus[order(Genus_abundance$Value, decreasing = TRUE)],10)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Genus2 = ifelse(Genus %in% top_phyla, paste0(Genus), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Genus2[which(tmp$Genus== "NA; NA; NA")] <- "unidentified"
+
+#cool function to make names pretty
+simplify_A <- function(value) {
+  if (value == "Others") {
+    return("Others")
+  } else {
+    simplified <- sub("^.*?o__(\\w+).*?$", "o__\\1", value)
+    ifelse(grepl("NA", simplified), sub("; NA.*?$", "; unknown", simplified), simplified)
+  }
+}
+
+
+# Apply the function to create column B
+tmp$Genus3 <- sapply(tmp$Genus2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Genus)%>%
+  rename(Genus = Genus3)
+
+# Define the manual colors for six levels
+custom_colors20<- c("#774C22", "#965326", 
+                     "#FFE898", 
+                     "#C1A13E", 
+                     "#5D641E",
+                     "#BAD0C4",
+                     "#7CAED1", "#98D3F1", 
+                       "#EFEFBB", "#FFD34C",
+                     "#dad7cd", "#386641", "#A7C957", "#a3b18a", "#B5E48C", "#432818","#F67E13", "#BC3853", "#F3E762", 
+                        "#64146E", "#A36A69")
+
+#plot phyla
+leaf_genus_plot <- tmp %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Genus)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Genus") +
+    scale_fill_manual(values= custom_colors20) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Leaf")
+    
+## root
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
+
+# Aggregate the metabarlist at the class level
+root_Genus <-  aggregate_motus(root, groups= root$motus$Genus)
+
+root_Genus$samples$Name <- paste0(substr(root_Genus$samples$Genus, 1, 1), ".", " ", root_Genus$samples$Species)
+
+# Aggregate per organ/genus
+tmp <-  melt(aggregate(root_Genus$reads, by = list(
+    paste(root_Genus$samples$Name)), sum))
+
+colnames(tmp) <- c("Name", "Genus", "Value")
+
+# Calculate the total abundance per Class
+Genus_abundance <- aggregate(Value ~ Genus, data = tmp, sum)
+options(scipen = 999)
+total_sum <- sum(Genus_abundance$Value)
+Genus_proportions <- Genus_abundance %>% mutate(Proportion = Value / total_sum *100)
+Genus_proportions
+
+top_10_proportions <- Genus_proportions %>% 
+  arrange(desc(Proportion)) %>% 
+  head(10)
+
+# Sort the data by the total abundance in descending Genus
+top_phyla <- head(Genus_abundance$Genus[order(Genus_abundance$Value, decreasing = TRUE)],10)
+
+# Classify other phyla as 'Others'
+tmp <- tmp %>%
+  mutate(Genus2 = ifelse(Genus %in% top_phyla, paste0(Genus), "Others"))
+
+# total abundance per species
+sample_abundance <- tmp %>%
+  group_by(Name) %>%
+  summarize(TotalValue = sum(Value))
+
+# Merge the total sample abundance with the data
+tmp <- merge(tmp, sample_abundance, by = "Name")
+
+# Calculate the relative abundances
+tmp$RelativeAbundance <- tmp$Value / tmp$TotalValue
+
+# Sort the data within each sample by increasing relative abundance
+tmp <- tmp %>%
+  group_by(Name) %>%
+  arrange(RelativeAbundance)
+
+tmp$Genus2[which(tmp$Genus== "NA; NA; NA")] <- "unidentified"
+
+# Apply the function to create column B
+tmp$Genus3 <- sapply(tmp$Genus2, simplify_A)
+
+tmp <- tmp %>%
+  dplyr::select(-Genus)%>%
+  rename(Genus = Genus3)
+
+tmp <- tmp %>%
+  dplyr::select(-Genus)%>%
+  rename(Genus = Genus3)
+#plot phyla
+root_genus_plot <- tmp  %>%
+    mutate(Name = gsub("_", " ", Name)) %>% 
+    ggplot(aes(x=Name, y=RelativeAbundance, fill=Genus)) +
+    geom_bar(position="stack", stat="identity") +
+    labs(x=NULL, y="", fill="Genus") +
+    scale_fill_manual(values= custom_colors20) +
+    coord_flip() + scale_x_discrete(limits = rev(levels(as.factor(tmp$Name))))+
+    theme_bw() +
+    theme(legend.position = "right",axis.text.y = element_text(face = "italic")) +
+    ggtitle("Root")
+    
+Genus <- ggarrange(leaf_genus_plot, root_genus_plot, ncol = 1, nrow = 2)
+
+ggsave("./results/Genus_bacteria.jpeg", Genus, width = 8, height = 10)
+```
+
 ## Common genus
 ```{r}
 load("./results/Metabarlist_natura_clean_16S.Rdata")

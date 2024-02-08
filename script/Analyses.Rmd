@@ -2142,7 +2142,7 @@ ggsave(filename = "beta_drivers2.jpeg", plot= beta_drivers_plot, bg= "white", wi
 
 ```
 
-#NDV (Figure 3)
+#NDV (Figure 3A)
 
 It is based on the approach described in the paper by Tucker et al. (2016), and it is an adaptation of the method proposed by Stegen et al. (2012).
 
@@ -2150,6 +2150,242 @@ For details of scripts, please refer to :
 
 1- NDV_script.R  : R code for the analses.
 2- myscript : bash code for launch the NDV_script.R in the genotool cluster (Bioinfo Genotoul, https://doi.org/10.15454/1.5572369328961167E12)
+
+
+```{r}
+#Plot-------------
+
+#ITS
+load("./results/null/bray_NDV_ITS_leaf.RData") #leaf
+load("./results/null/bray_NDV_ITS_root.RData") #root
+
+
+ndv_ITS_leaf <-data.frame(bray_abund_null_dev_fun)
+ndv_ITS_root <-data.frame(bray_abund_null_dev_fun_root)
+colnames(ndv_ITS_leaf)<-c("NDV")
+colnames(ndv_ITS_root)<-c("NDV")
+
+boxplot(bray_abund_null_dev_fun, bray_abund_null_dev_fun_root,outline=FALSE)
+t.test(bray_abund_null_dev_fun,bray_abund_null_dev_fun_root, alternative = "two.sided", var.equal = FALSE)
+
+plot_ITS <- ggplot()+
+  geom_boxplot(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73", alpha=0.6) +
+  geom_point(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", position="jitter")+
+  geom_boxplot(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",  alpha=0.6)+
+  geom_point(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black", position="jitter")+
+  #scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
+   scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
+ # ggtitle("Fungi null beta-distribution")+
+  annotate("text",x=1.5,y=1,label="t = -18.01, df = 106", size = 6)+
+  annotate("text",x=1.5,y=0.9,label="P < 2.2e-16", size = 6)+
+  theme_minimal(base_size =25)+
+  theme(axis.title.x = element_blank())+
+  ylim(0.2, 1.05)
+plot_ITS
+
+
+ggsave("./results/plot_ITS_ndv.jpeg", plot_ITS)
+
+#16S
+
+load("./results/null/bray_NDV_16S_leaf.RData") #leaf
+load("./results/null/bray_NDV_16S_root.RData") #root
+
+
+boxplot(bray_abund_null_dev_fun, bray_abund_null_dev_fun_root,outline=FALSE)
+t.test(bray_abund_null_dev_fun,bray_abund_null_dev_fun_root, alternative = "two.sided", var.equal = FALSE)
+
+ndv_16S_leaf <-data.frame(bray_abund_null_dev_fun)
+ndv_16S_root <-data.frame(bray_abund_null_dev_fun_root)
+colnames(ndv_16S_leaf)<-c("NDV")
+colnames(ndv_16S_root)<-c("NDV")
+
+plot_16S <- ggplot()+
+  geom_boxplot(data=ndv_16S_leaf,aes(x=factor(0),y=NDV),colour="black", fill="#009E73", alpha=0.6) +
+  geom_point(data=ndv_16S_leaf,aes(x=factor(0),y=NDV), position="jitter")+
+  geom_boxplot(data=ndv_16S_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",alpha=0.6)+
+  geom_point(data=ndv_16S_root,aes(x=factor(1),y=NDV), position="jitter")+
+  #scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
+   scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
+  #ggtitle("Bacteria null beta-distribution")+
+  annotate("text",x=1.5,y=1,label="t = -1.8, df = 103", size = 6)+
+  annotate("text",x=1.5,y=0.9,label="P = 0.24", size = 6)+
+  theme_minimal(base_size = 25)+
+  theme(axis.title.x = element_blank())+
+  ylim(0.2, 1.05)
+
+#plot together
+NDV_plot <- ggarrange(plot_16S,plot_ITS,
+                      labels = c("Bacteria", "Fungi"),                      ncol = 2, nrow = 1, font.label = list(face="italic")) 
+
+
+NDV_plot
+#ggsave(filename = "NDV.png", plot = NDV_plot, bg = "white", width = 10, height = 8, dpi = 600)
+```
+
+
+#NST (Figure 3B)
+
+Normalized stochasticity ratio (NST) calculation.
+Reference: Daliang Ning, Ye Deng, James M. Tiedje, Jizhong Zhou. (2019) 
+A general framework for quantitatively assessing ecological stochasticity. 
+
+Normalized stochasticity ratio (NST) was further applied to identify the bacterial community assembly processes, where an index developed with 50% as the distinct point between more stochastic (>50%) assembly and more deterministic (<50%) (Ning et al. 2019). This analysis was performed in the R v3.6.3 with the “NST” package (Ning et al. 2019).
+```{r}
+
+# version 20210511
+install.packages("NST")
+
+library(ape)
+library(iCAMP)
+library(NST) # need to be NST >=3.1.3
+```
+
+
+##fungi analyses root vs. leaves
+```{r}
+
+#load data fungi and match IDs
+load("D:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+fungi <- natura_clean
+comm.fungi <- (fungi$reads)
+sample.fungi = fungi$pcrs[,c(1,4)]
+sample.fungi.2 <- subset(sample.fungi, select=c(organ))
+
+# calculate tNST, 'jaccard' and 'bray' are preferred according to Ning et al. 2019
+nst <- tNST(comm = comm.fungi,group = sample.fungi.2,dist.method = "bray",rand = 1000, output.rand = T) #did it with 1000 as recommanded, here set 20 to save test time. Have to have output.rand= T to do the boootstrapping after.
+
+#save
+prefixi2 = "mydata_fungi_rand1000" # prefix in the output filenames
+save(nst,file = paste0(prefixi2,".tNST.rda")) # save tNST output in R data format
+write.table(nst$index.grp,file = paste0(prefixi2,".tNST.summary.csv"), quote = FALSE,sep = ",")
+write.table(nst$index.pair.grp,file = paste0(prefixi2,".tNST.pairwise.csv"),quote = FALSE,sep = ",")
+
+#Bootstrapping is an excellent method to evaluate the statistical variation. Since the observed/null dissimilarity values are not independent (pairwise comparisons), bootstrapping should be random draw of samples rather than the pairwise values.
+nst.result <- load("D:/Sophie_pipeline/obitools/NST/mydata_fungi_rand1000.tNST.rda")
+nst_boot <-nst.boot(nst.result = nst,group = NULL, rand = 100, trace = T,out.detail = T) #need out.detail= T, to output details rather than just summarized results.
+
+#plot
+nst$index.grp$NST.i.bray #bargraph
+nst_boot$detail$NST.boot$leaf #boxplot
+
+t.test(nst_boot$detail$NST.boot$leaf,nst_boot$detail$NST.boot$root, alternative = "two.sided", var.equal = FALSE)
+#data:  nst_boot$detail$NST.boot$leaf and nst_boot$detail$NST.boot$root
+# t = -37.41, df = 153.86, p-value <
+# 2.2e-16
+# alternative hypothesis: true difference in means is not equal to 0
+# 95 percent confidence interval:
+#  -0.2515125 -0.2262816
+# sample estimates:
+# mean of x mean of y 
+# 0.6629391 0.9018361 
+
+
+data <- nst_boot$detail$NST.boot %>%
+  as.data.frame() %>%
+  pivot_longer(cols = c("leaf", "root"), names_to = "organ")%>%
+  rename("NST" = "value")
+
+data$kingdom <- "fungi"
+
+fungi_plot_nst <- ggplot(data) +
+ aes(x = organ, y = NST, fill = organ) +
+ geom_boxplot(alpha=0.7) +
+# geom_hline(yintercept=0.5, linetype= "dashed", color="black")+
+ scale_fill_manual(values = c(leaf = "#009E73", 
+root = "#E69F00")) +
+  geom_point(position= "jitter")+
+#ggtitle('NST for fungi, 1000 rand. + bootstrap')+
+  theme_minimal(base_size = 25)+
+  theme(axis.title.x = element_blank(), legend.position = "none")+
+  annotate("text",x=1.5,y=1.01,label="t = -37.4, df = 153.9", size = 6)+
+  annotate("text",x=1.5,y=0.97,label="P < 2.2e-16", size = 6)+
+  scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
+  ylim(0.55, 1.03)#ajout de determinisme et stochasticité avec fleche sur la droite du graphe
+fungi_plot_nst
+```
+
+##bacteria analyses
+```{r}
+
+#load data bacteria and match IDs
+load("D:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_16S_traits.Rdata")
+bacteria <- natura_clean
+comm.bacteria <- (bacteria$reads)
+sample.bacteria = bacteria$pcrs[,c(1,4)]
+sample.bacteria.2 <- subset(sample.bacteria, select=c(organ))
+
+# calculate tNST, 'jaccard' and 'bray' are preferred according to Ning et al. 2019
+nst <- tNST(comm = comm.bacteria, group = sample.bacteria.2,dist.method = "bray",rand = 1000, output.rand = T) #did it with 1000 as recommanded, here set 20 to save test time.
+
+#save
+prefixi2 = "mydata_bacteria_rand1000" # prefix in the output filenames
+save(nst,file = paste0(prefixi2,".tNST.rda")) # save tNST output in R data format
+write.table(nst$index.grp,file = paste0(prefixi2,".tNST.summary.csv"), quote = FALSE,sep = ",")
+write.table(nst$index.pair.grp,file = paste0(prefixi2,".tNST.pairwise.csv"),quote = FALSE,sep = ",")
+
+#Bootstrapping
+nst.result <- load("D:/Sophie_pipeline/obitools/NST/mydata_bacteria_rand1000.tNST.rda")
+nst_boot <-nst.boot(nst.result = nst,group = NULL, rand = 100, trace = T,out.detail = T) #need out.detail= T, to output details rather than just summarized results.
+t.test(nst_boot$detail$NST.boot$leaf,nst_boot$detail$NST.boot$root, alternative = "two.sided", var.equal = FALSE)
+
+# data:  nst_boot$detail$NST.boot$leaf and nst_boot$detail$NST.boot$root
+# t = -0.2086, df = 173.73, p-value =
+# 0.835
+# alternative hypothesis: true difference in means is not equal to 0
+# 95 percent confidence interval:
+#  -0.005810161  0.004699410
+# sample estimates:
+# mean of x mean of y 
+# 0.8473098 0.8478652 
+
+#plot
+
+data_bac <- nst_boot$detail$NST.boot %>%
+  as.data.frame() %>%
+  pivot_longer(cols = c("leaf", "root"), names_to = "organ")%>%
+  rename("NST" = "value")
+
+data$kingdom <- "bacteria"
+
+bacteria_plot_nst <- ggplot(data_bac) +
+ aes(x = organ, y = NST, fill = organ) +
+  geom_boxplot(alpha=0.7) +
+# geom_hline(yintercept=0.5, linetype= "dashed", color="black")+
+ scale_fill_manual(values = c(leaf = "#009E73", 
+root = "#E69F00")) +
+   geom_point(position= "jitter")+
+#ggtitle('NST for fungi, 1000 rand. + bootstrap')+
+  theme_minimal(base_size = 25)+
+  theme(axis.title.x = element_blank(), legend.position = "none")+
+  annotate("text",x=1.5,y=1.01,label="t = -0.2, df = 173.7", size = 6)+
+  annotate("text",x=1.5,y=0.97,label="P=0.8", size = 6)+
+  scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
+  ylim(0.55, 1.03)
+  #geom_text()#ajout de determinisme et stochasticité avec fleche sur la droite du graphe
+```
+
+##plot together
+```{r}
+#plot together
+NST_plot <- ggarrange(bacteria_plot_nst,fungi_plot_nst,
+                      labels = c("Bacteria", "Fungi"),                      ncol = 2, nrow = 1, font.label = list(face="italic"))
+
+NST_plot
+
+ggsave(filename = "NST.png", plot = NST_plot, bg = "white", width = 10, height = 8, dpi = 600)
+```
+
+#NDV + NST plot together
+
+```{r}
+
+assemblage_plot <- ggarrange(NULL, NDV_plot, NULL, NST_plot, ncol = 1, nrow = 4, labels = c("","A. Niche or neutral processes","","B. Stochastic or deterministic assembly"),vjust = c(0,-0.8), hjust = c(0,0), font.label = list(size= 20), heights = c(0.3,2,0.3,2))
+
+assemblage_plot
+
+ggsave(filename = "NST_NDV.png", plot =assemblage_plot, bg = "white", width = 10, height = 8, dpi = 600)
+```
 
 #varpart
 In order to assess the factors responsible for differences in beta diversity, separately for bacteria and fungi and for leaf and root organs, variance partitioning analyses were carried out on the raw-OTU table (function varpart in the vegan package); the explanatory variables that significantly explained variation in endophyte community composition were determined by forward selection using the ordistep function in vegan. 
@@ -2381,3 +2617,9 @@ root.fungi
 #together
 fungi_vartpart <- ggarrange(leaf.fungi, root.fungi, labels = c("Leaf fungi", "Root fungi"), nrow=1, ncol=2)
 ```
+
+
+# END
+
+#NMDS: https://www.frontiersin.org/articles/10.3389/fbioe.2023.1197175/full#h6
+
