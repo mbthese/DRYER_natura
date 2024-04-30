@@ -832,7 +832,7 @@ ggsave(filename = "PCA_Natura.png", plot = PCA_plot, bg = "white", width = 12, h
 PCA_organ<- ggarrange(PCA_leaf , PCA_root, labels = c("A-Leaf", "B-Root"), vjust = c(1,1), hjust = c(-1.5,-1.5),font.label = list(size = 20), ncol=2, nrow=1, legend = "bottom", common.legend = T)
 PCA_organ
 
-ggsave(filename = "PCA_Natura2.png", plot = PCA_organ, bg = "white", width = 12, height = 8, dpi = 600)
+ggsave(filename = "Figure4.pdf", plot = PCA_organ, bg = "white", width = 12, height = 8, dpi = 600)
 
 ```
 
@@ -1354,6 +1354,7 @@ Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, 
 Beta_option2
 
 ggsave("./results/Beta_ITS.jpeg", Beta_option2, width = 9, height = 7)
+ggsave("./results/Figure1.pdf", Beta_option2, width = 9, height = 7, dpi = 600)
 ```
 
 ##drivers of beta diversity (Appendix S15 fungi)
@@ -1990,6 +1991,7 @@ Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, 
 Beta_option2
 
 ggsave("./results/Beta_16S.jpeg", Beta_option2, width = 9, height = 7)
+ggsave("./results/Figure2.pdf", Beta_option2, width = 9, height = 7, dpi = 600)
 ```
 
 
@@ -2297,7 +2299,9 @@ root = "#E69F00")) +
   geom_point(position= "jitter")+
 #ggtitle('NST for fungi, 1000 rand. + bootstrap')+
   theme_minimal(base_size = 25)+
-  theme(axis.title.x = element_blank(), legend.position = "none")+
+  theme(axis.title.x = element_blank(), legend.position = "none",
+        
+        panel.grid.major.x = element_line(color = "white"))+
   annotate("text",x=1.5,y=1.01,label="t = -37.4, df = 153.9", size = 6)+
   annotate("text",x=1.5,y=0.97,label="P < 2.2e-16", size = 6)+
   scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
@@ -2357,7 +2361,7 @@ root = "#E69F00")) +
    geom_point(position= "jitter")+
 #ggtitle('NST for fungi, 1000 rand. + bootstrap')+
   theme_minimal(base_size = 25)+
-  theme(axis.title.x = element_blank(), legend.position = "none")+
+  theme(axis.title.x = element_blank(), legend.position = "none", panel.grid.major.x = element_line(color = "white"))+
   annotate("text",x=1.5,y=1.01,label="t = -0.2, df = 173.7", size = 6)+
   annotate("text",x=1.5,y=0.97,label="P=0.8", size = 6)+
   scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
@@ -2384,7 +2388,7 @@ assemblage_plot <- ggarrange(NULL, NDV_plot, NULL, NST_plot, ncol = 1, nrow = 4,
 
 assemblage_plot
 
-ggsave(filename = "NST_NDV.png", plot =assemblage_plot, bg = "white", width = 10, height = 8, dpi = 600)
+ggsave(filename = "NST_NDV.pdf", plot =assemblage_plot, bg = "white", width = 10, height = 8, dpi = 600)
 ```
 
 #varpart
