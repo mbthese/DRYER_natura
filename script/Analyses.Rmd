@@ -139,7 +139,7 @@ setwd("E:/Sophie_pipeline/obitools")
 
 # Functions
 
-Code inspiration from : https://gist.github.com/padpadpadpad/4201dc530b18a8d36363d37286edfc7c
+Code inspiration from : 
 
 ```{r}
 # functions ####
@@ -1086,6 +1086,11 @@ TukeyHSD(mod)
 # Plot the groups and distances to centroids on the
 ## first two PCoA axes
 plot(mod)
+boxplot(mod)
+
+#eventhough anova(mod) is slightly significant, when we plot, the group dispersion is relatively the same except for some samples for away from the centroids. But now let's test if the compositions are different, as seen on the plot.
+
+adonis2(formula = hill.beta.dist ~ as.factor(natura_clean$samples$organ), perm= 999)#Observing our results we can see that groups have significantly different compositions (p<0.05). 
 
 # Dimension (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod$eig[1]/ sum(mod$eig) * 100 #11.11
@@ -1163,7 +1168,7 @@ p
 
 Beta_all <- ggarrange( pcoa_beta_its_all, p, ncol = 2, nrow = 1, widths = c(1, 0.7), labels = c("A", "B"))
 Beta_all 
-#ggsave("./results/ITS_all_beta_diversity.jpeg", Beta_all)
+                         #ggsave("./results/ITS_all_beta_diversity.jpeg", Beta_all)
 
 #subset leaf and repeat same analysis---------
 
@@ -1183,6 +1188,8 @@ mod.leaf
 anova(mod.leaf) #no 0.6947
 leaf_tuket <- TukeyHSD(mod.leaf) #aucune paires de significatives
 plot(mod.leaf)
+
+adonis2(hill.beta.dist~as.factor(leaf$samples$Name), permutations = 999)
 
 # Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod.leaf$eig[1]/ sum(mod.leaf$eig) * 100 #44.69416 
@@ -1289,6 +1296,8 @@ mod.root
 anova(mod.root) #  0.5625
 root_tuket <- TukeyHSD(mod.root) #aucune paires de significatives
 plot(mod.root)
+
+adonis2(hill.beta.dist~as.factor(root$samples$Name), permutations = 999)
 
 # Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod.root$eig[1]/ sum(mod.root$eig) * 100 #6.8
@@ -1717,6 +1726,8 @@ TukeyHSD(mod)
 ## first two PCoA axes
 plot(mod)
 
+adonis2(hill.beta.dist~as.factor(natura_clean$samples$organ), perm= 999)
+
 # Dimension (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod$eig[1]/ sum(mod$eig) * 100 #25.16776
 Axis1.percent
@@ -1812,6 +1823,8 @@ mod.leaf
 anova(mod.leaf) #yes 0.01656 *
 leaf_tuket <- TukeyHSD(mod.leaf) #aucune paires de significatives
 plot(mod.leaf)
+
+adonis2(hill.beta.dist~as.factor(leaf$samples$Name), permutations = 999)
 
 # Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod.leaf$eig[1]/ sum(mod.leaf$eig) * 100 #10.37157 
@@ -1929,6 +1942,10 @@ mod.root
 anova(mod.root) #  0.5625
 root_tuket <- TukeyHSD(mod.root) #aucune paires de significatives
 plot(mod.root)
+
+
+adonis2(hill.beta.dist~as.factor(root$samples$Name), permutations = 999)
+
 
 # Dimension 1 & 2 (i.e., Axis 1 (PCOA1))
 Axis1.percent <- mod.root$eig[1]/ sum(mod.root$eig) * 100 #10.91229
