@@ -337,7 +337,7 @@ tempData$imp$gmin
 
 Only   gmin 6.9 % nas, StomatalDensity 4,2 % na, and  RootDiameter 1,4 % nas were imputed. TLP 22 % too much and MajVLA 75 % too much and Nb_leaflets not imputed because it does not make any sense.
 
-## Trait variation (Appendix S13)
+## Trait variation (Appendix S16)
 
 *log transformation* to help in addressing issues related to data distribution and scale. 
 
@@ -524,8 +524,9 @@ gmin <-ggplot(traits, aes(Name, gmin, color= Name))+
   theme_minimal(base_size = 14)+
   geom_text(data= TK.gmin,aes(label=letters, x= Name,y= quant), vjust = -0.2, hjust = -0.1, size = 6, color = "black") + theme(axis.text.x = element_blank(),legend.text = element_text(face='italic'), legend.position = "bottom")+
   ylim(0, 9)+
-  ggtitle(bquote(gmin~(mmol~m^2~s^-1)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))
+  ggtitle(expression(paste(italic("g")[min], ~ (mmol ~ m^2 ~ s^-1)))) +
+  theme(plot.title = element_text(hjust = 0, size = 15))
+
 gmin
 
 # LT
@@ -548,7 +549,7 @@ lt <- ggplot(traits, aes(Name, LT, color = Name)) +
            vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
    ggtitle(bquote(LT~(mm)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(0,0.35)
 lt
 
@@ -572,7 +573,7 @@ lswc <- ggplot(traits, aes(Name, LSWC, color = Name)) +
            vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+ 
   ggtitle(bquote(LSWC~(g~g^-1)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(0,5)
 lswc
 
@@ -596,7 +597,7 @@ la <- ggplot(traits, aes(Name, TotalLeafArea, color = Name)) +
           vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
   ggtitle(bquote(Total_LA~(cm^2)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(0, 250)
 la
 
@@ -620,7 +621,7 @@ sla <- ggplot(traits, aes(Name, SLA, color = Name)) +
             vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
   ggtitle(bquote(SLA~(cm^2~g^-1)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(100,490)
 sla
 
@@ -644,7 +645,7 @@ stomatal_density <- ggplot(traits, aes(Name, StomatalDensity, color = Name)) +
             vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
   ggtitle(bquote(SD~(mm^-2)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(0,310)
 stomatal_density
 
@@ -667,8 +668,8 @@ RTD <- ggplot(traits, aes(Name, RootTissueDensity, color = Name)) +
   geom_text(data = TK.RTD, aes(label = letters, x = Name, y = quant),
             vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
-  ggtitle(bquote(RTD~(g.cm^-3)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))+
+  ggtitle(bquote(RTD~(g~cm^-3)))+
+  theme(plot.title = element_text(hjust = 0, size = 15))+
   ylim(0,0.9)
 RTD
 
@@ -692,7 +693,7 @@ root_diameter <- ggplot(traits, aes(Name, RootDiameter, color = Name)) +
             vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom") +
   ggtitle(bquote(RD~(mm)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))
+  theme(plot.title = element_text(hjust = 0, size = 15))
 
 # SRL
 srl.anova <- aov(norm_SRL ~ Name, data =data_norm_st)
@@ -714,7 +715,7 @@ srl <- ggplot(traits, aes(Name, SRL, color = Name)) +
             vjust = -0.2, hjust = -0.1, size = 6, color = "black") +
   theme(axis.text.x = element_blank(), legend.text = element_text(face = 'italic'), legend.position = "bottom")+
   ggtitle(bquote(SRL~(cm~g^-1)))+
-  theme(plot.title = element_text(hjust = 0.5, size = 15))
+  theme(plot.title = element_text(hjust = 0, size = 15))
 
 
 ```
@@ -746,7 +747,7 @@ write.csv(traits_norm_together, "./resources/DRYER_natura_imputed_traits_norm.cs
 ###########################################
 
 #traits imputed
-traits <- read_csv("resources/DRYER_natura_imputed_traits_norm.csv")
+traits <- read_csv("./resources/DRYER_natura_imputed_traits_norm.csv")
 
 traits$code <- as.character(traits$code)
 
@@ -1129,8 +1130,8 @@ pcoa_beta_its_all <- ggplot() +
   geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
   geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 5.5%') +
-  xlab('PCoA 1 - 11.1%') +
+  ylab('PCoA 2  5.5%') +
+  xlab('PCoA 1  11.1%') +
   theme(legend.position = 'none') + #remove legend
   # ggtitle("Beta diversity - ITS")+
    # Set the colors for the two groups
@@ -1155,9 +1156,9 @@ p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) +
   geom_boxplot(alpha=0.5) + 
   theme_classic(base_size = 12)+
   annotate(geom="text", x=1.5, y=1.5, label="Permutation test",
-              color="black", size = 4)+
-   annotate(geom="text", x=1.5, y=1.45, label="p-value = 0.01 **",
-              color="black", size = 4)+
+              color="black", size = 3)+
+   annotate(geom="text", x=1.5, y=1.45, label= expression(italic(P) == 0.01),
+              color="black", size = 3)+
    ylab('Distance \n to centroid') +
    theme(legend.position = "none", axis.title.x =element_blank())  +
   scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02"))
@@ -1236,11 +1237,11 @@ pcoa_beta_leaf <-  ggplot() +
   geom_path(aes(PCoA1, PCoA2, group =  group, col = group), betadisper_dat$chull) +
  # geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = group, col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 6.3%') +
-  xlab('PCoA 1 - 10.0%') +
+  ylab('PCoA 2  6.3%') +
+  xlab('PCoA 1  10.0%') +
   ggtitle("Leaf") +
-  theme(plot.title = element_text(color = "#6bbf59", face = "bold"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 14)) +
-  labs(col = "Species")
+  theme(plot.title = element_text(color = "#6bbf59"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 12)) +
+  labs(col = "Host species")
 pcoa_beta_leaf  
 
 
@@ -1266,10 +1267,11 @@ leaf<- df %>%
     ylab('Distance \n to centroid') +
   theme_classic(base_size = 12)+
  # annotate(geom="text", x=1, y=0.69, label="Permutation test",color="black")+
-   annotate(geom="text", x=4, y=1.4, label="p-value=0.8",
-              color="black")+
+   annotate(geom="text", x=6.9, y=1.4, label=expression(italic(P) == 0.8),
+              color="black", size =3)+
   theme(legend.position = "none", axis.title.x =element_blank(), axis.text.x = element_blank())
 leaf
+
 
 
 #Combine the two graphs
@@ -1318,11 +1320,11 @@ pcoa_beta_root <- ggplot() +
   geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
   #geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 6.0%') +
-  xlab('PCoA 1 - 6.8%') +
+  ylab('PCoA 2  6.0%') +
+  xlab('PCoA 1  6.8%') +
   theme(legend.position = 'bottom') +
    ggtitle("Root")+
-    theme(plot.title = element_text(color = "#E79F02", face = "bold"))+
+    theme(plot.title = element_text(color = "#E79F02"))+
   scale_color_manual(values = group_colors_sans_tachi)
  pcoa_beta_root 
 
@@ -1342,11 +1344,11 @@ root<- df %>%
     ylab('Distance \n to centroid') +
   theme_classic(base_size = 12)+
  # annotate(geom="text", x=1, y=0.69, label="Permutation test", color="black")+
-   annotate(geom="text", x=3.5, y=1.4, label="p-value=0.6",
-              color="black")+
+   annotate(geom="text", x=1.1, y=1.4, label=expression(italic(P) == 0.6),
+              color="black", size=3)+
    theme(legend.position = "none", axis.title.x =element_blank(), axis.text.x = element_blank())+
   scale_color_manual(values = group_colors_sans_tachi)
-  
+
 root
 
 #Combine the two graphs
@@ -1359,14 +1361,14 @@ Beta_root
 
 Beta_option1 <- ggarrange(Beta_all, ggarrange(Beta_leaf, Beta_root, ncol = 2, nrow = 1), legend_plot, nrow = 3, heights = c(2,1, 0.5))
 
-Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, nrow = 4, heights = c(1,1,1, 0.3), widths = c(0.5, 0.5,0.5,1))
+Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, nrow = 4, heights = c(1,1,1, 0.5), widths = c(0.5, 0.5,0.5,0.8))
 Beta_option2
 
 ggsave("./results/Beta_ITS.jpeg", Beta_option2, width = 9, height = 7)
 ggsave("./results/Figure1.pdf", Beta_option2, width = 9, height = 7, dpi = 600)
 ```
 
-##drivers of beta diversity (Appendix S15 fungi)
+##drivers of beta diversity (Appendix S18 fungi)
 
 leaf
 ```{r}
@@ -1434,7 +1436,7 @@ rsquare_ITS_leaf[2,2]  <- rsquare_ITS_leaf[2,2] - rsquare_ITS_leaf[1,2]
 
 rsquare_ITS_leaf $traits <- c( "Host species",  "gmin", "All variables")
 
-all_trait <- data.frame(traits = c("Host species", "gmin", "LSWC", "LT", "SLA", "Stomatal density", "Total_LA", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"))
+all_trait <- data.frame(traits = c("Host species", "gmin", "LSWC", "LT", "SLA", "SD", "Total_LA", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"))
 
 rsquare_ITS_leaf <- left_join(all_trait, rsquare_ITS_leaf)
 
@@ -1443,8 +1445,8 @@ leaf_fungi <- ggplot(rsquare_ITS_leaf, aes(x = traits, y = Adj.R.squared)) +
   geom_point(stat = "identity", fill = "steelblue", size =5) +  # Increase point size to 3
   geom_segment(aes(x = traits, xend = traits, y = 0, yend = Adj.R.squared), color = "black") +  # Add black lines
   labs(x = "", y = "") +
-  ggtitle("Leaf Fungi")+
-  theme_classic(base_size = 30) +
+  ggtitle("Leaf fungi")+
+  theme_classic(base_size = 15) +
   coord_flip()
 
 ```
@@ -1495,13 +1497,13 @@ vif.cca(full_model)
 Plot
 ```{r}
 # Create a data frame for plotting
-rsquare_df_root_ITS <- data.frame(Trait = c("Host species", "SRL", "Root diameter", "Root tissue density", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"), Adj.R.squared = c("", "", "", "", "","", "", "", ""))
+rsquare_df_root_ITS <- data.frame(Trait = c("Host species", "SRL", "RD", "RTD", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"), Adj.R.squared = c("", "", "", "", "","", "", "", ""))
 
 # Plot the estimates using ggplot2
 root_fungi <-ggplot(rsquare_df_root_ITS, aes(x = Trait, y = Adj.R.squared)) +
-  labs(x = "", y = "Adjusted R²") +
-  ggtitle("Root Fungi")+
-  theme_classic(base_size = 30) +
+  labs(x = "", y = expression(paste("Adjusted",~italic(R^2)))) +
+  ggtitle("Root fungi")+
+  theme_classic(base_size = 15) +
   coord_flip()
 ```
 
@@ -1513,6 +1515,10 @@ root_fungi <-ggplot(rsquare_df_root_ITS, aes(x = Trait, y = Adj.R.squared)) +
 load("./resources/Metabarlist_natura_clean_16S_traits.Rdata")
 
 #save(leaf, file = "./results/Metabarlist_natura_clean_16S_leaf_traits.Rdata")
+leaf <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "leaf")
+root <- subset_metabarlist(natura_clean, table = "samples",
+                          indices = natura_clean$samples$organ == "root")
 ```
 
 
@@ -1765,8 +1771,8 @@ pcoa_beta_16S_all <- ggplot() +
   geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
   geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = row.names(betadisper_lines), col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 5.5%') +
-  xlab('PCoA 1 - 25.2%') +
+  ylab('PCoA 2 5.5%') +
+  xlab('PCoA 1 25.2%') +
   theme(legend.position = 'none') + #remove legend
   # ggtitle("Beta diversity - 16S")+
    # Set the colors for the two groups
@@ -1790,9 +1796,9 @@ p<- ggplot(data=df,aes(x=Group,y=Distance_to_centroid,colour=groups)) +
   geom_boxplot(alpha=0.5) + 
   theme_classic(base_size = 12)+
   annotate(geom="text", x=1.5, y=1.5, label="Permutation test",
-              color="black", size = 4)+
-   annotate(geom="text", x=1.5, y=1.43, label="p-value = 0.07",
-              color="black", size = 4)+
+              color="black", size = 3)+
+   annotate(geom="text", x=1.5, y=1.43, label=expression(italic(P) == 0.07),
+              color="black", size = 3)+
    ylab('Distance \n to centroid') +
    theme(legend.position = "none", axis.title.x =element_blank())  +
   scale_color_manual(values = c(leaf = "#6bbf59", root = "#E79F02"))
@@ -1873,11 +1879,11 @@ pcoa_beta_leaf <-  ggplot() +
   geom_path(aes(PCoA1, PCoA2, group =  group, col = group), betadisper_dat$chull) +
  # geom_segment(aes(x = PCoA1.x, y = PCoA2.x, yend = PCoA2.y, xend = PCoA1.y, group = group, col = group), betadisper_lines) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 6.4%') +
-  xlab('PCoA 1 - 10.4%') +
+  ylab('PCoA 2 6.4%') +
+  xlab('PCoA 1 10.4%') +
   ggtitle("Leaf") +
-  theme(plot.title = element_text(color = "#6bbf59", face = "bold"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 14)) +
-  labs(col = "Species")
+  theme(plot.title = element_text(color = "#6bbf59"), legend.position = 'bottom', legend.text = element_text(face= "italic", size = 12)) +
+  labs(col = "Host species")
 pcoa_beta_leaf  
 
 
@@ -1902,9 +1908,13 @@ cld.r.leaf<- multcompView::multcompLetters4(r.leaf.aov, r.leaf.tukey)
 letters.leaf <- as.data.frame.list(cld.r.leaf$`mod.leaf$group`)
 TK.leaf <- group_by(df, Group) %>%
   summarise(mean = mean(Distance_to_centroid),
-            quant = quantile(Distance_to_centroid, probs = 0.75)) %>%
+            quant = quantile(Distance_to_centroid, probs = 0.90)) %>%
   arrange(desc(mean))
 TK.leaf$letters <- letters.leaf$Letters
+TK.leaf
+
+TK.leaf$x_axis <- c(6,4,2,3,1,5,7)
+TK.leaf$y_axis <- c(1,1,1.13,1,0.95,1,1.05)
 
 leaf<- df %>%
   mutate(name = gsub("_", " ", Group)) %>%
@@ -1915,10 +1925,10 @@ leaf<- df %>%
    ylab("Distance \n to centroid")+
   theme_classic(base_size = 12)+
   #annotate(geom="text", x=1, y=0.69, label="Permutation test",color="black")+
-  geom_text(data = TK.leaf, aes(label = letters, x = Group, y = quant),
-            vjust = -0.2, hjust = 0.8, size = 6, color = "black") +
-  annotate(geom="text", x=7, y=1.1, label="p-value=0.03*",
-              color="black")+
+  geom_text(data = TK.leaf, aes(label = letters, x = x_axis, y = y_axis),
+            vjust = -0.2, hjust = 1, size = 3, color = "black") +
+  annotate(geom="text", x=1.1, y=1.1, label=expression(italic(P) == 0.03),
+              color="black", size =3)+
   theme(legend.position = "none", axis.title.x =element_blank(), axis.text.x = element_blank())
 leaf
 
@@ -1967,11 +1977,11 @@ pcoa_beta_root <- ggplot() +
   geom_point(aes(PCoA1, PCoA2, col = group), betadisper_dat$eigenvector) +
   geom_path(aes(PCoA1, PCoA2, col = group, group = group), betadisper_dat$chull ) +
   theme_classic(base_size = 12, base_family = 'Helvetica') +
-  ylab('PCoA 2 - 4.7%') +
-  xlab('PCoA 1 - 10.9%') +
+  ylab('PCoA 2 4.7%') +
+  xlab('PCoA 1 10.9%') +
   theme(legend.position = 'bottom') +
    ggtitle("Root")+
-    theme(plot.title = element_text(color = "#E79F02", face = "bold"))
+    theme(plot.title = element_text(color = "#E79F02"))
  pcoa_beta_root 
 
 # Draw a boxplot of the distances to centroid for each group
@@ -1988,8 +1998,8 @@ root<- df %>%
   geom_boxplot(alpha=0.5) + 
     ylab('Distance \n to centroid') +
   theme_classic(base_size = 12)+
-   annotate(geom="text", x=3.5, y=1.1, label="p-value=0.4",
-              color="black")+
+   annotate(geom="text", x=1.1, y=1.1, label=expression(italic(P)==0.4),
+              color="black", size=3)+
    theme(legend.position = "none", axis.title.x =element_blank(), axis.text.x = element_blank())
   
 root
@@ -2004,7 +2014,7 @@ Beta_root
 
 Beta_option1 <- ggarrange(Beta_all, ggarrange(Beta_leaf, Beta_root, ncol = 2, nrow = 1), legend_plot, nrow = 3, heights = c(2,1, 0.5))
 
-Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, nrow = 4, heights = c(1,1,1, 0.3), widths = c(0.5, 0.5,0.5,1))
+Beta_option2 <- ggarrange(Beta_all, Beta_leaf, Beta_root,legend_plot, ncol = 1, nrow = 4, heights = c(1,1,1, 0.5), widths = c(0.5, 0.5,0.5,0.8))
 Beta_option2
 
 ggsave("./results/Beta_16S.jpeg", Beta_option2, width = 9, height = 7)
@@ -2062,13 +2072,13 @@ Plot
 library(ggplot2)
 
 # Create a data frame for plotting
-rsquare_df_leaf <- data.frame(Trait = c("Host species", "gmin", "LSWC", "LT", "SLA", "Stomatal density", "Total_LA", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"), Adj.R.squared = c("", "", "","", "", "","", "", "","", "", ""))
+rsquare_df_leaf <- data.frame(Trait = c("Host species", "gmin", "LSWC", "LT", "SLA", "SD", "Total_LA", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"), Adj.R.squared = c("", "", "","", "", "","", "", "","", "", ""))
 
 # Plot the estimates using ggplot2
 Leaf_bacteria <- ggplot(rsquare_df_leaf, aes(x = Trait, y = Adj.R.squared)) +
   labs(x = "", y = "") +
-  ggtitle("Leaf Bacteria")+
-  theme_classic(base_size = 30) +
+  ggtitle("Leaf bacteria")+
+  theme_classic(base_size = 15) +
   coord_flip()
 ```
 
@@ -2094,7 +2104,7 @@ root$samples <- left_join(root$samples, traits_norm %>% dplyr::select(code, norm
 ```{r}
 #traits
 names(root$samples)
-env <- root$samples[,c(14,39:42,49:51)] #only root traits and spatial predictors
+env <- root$samples[,c(14,40:43,48:50)] #only root traits and spatial predictors
 # Prior to constructing the model, root functional trait variables were mean-centered and scaled to unit variance.
 names(env)
 env.scale <- scale(env[,-c(1)], center = TRUE, scale = TRUE) #scale traits not the indices
@@ -2136,7 +2146,7 @@ rsquare_df[2,2] <- rsquare_df[2,2] - rsquare_df[1,2]
 rsquare_df[3,2] <- rsquare_df[3,2] - (rsquare_df[1,2]+ rsquare_df[2,2])
 rsquare_df[4,2] <- rsquare_df[4,2] - (rsquare_df[1,2]+ rsquare_df[2,2]+rsquare_df[3,2] )
 
-all_trait <- data.frame(traits = c("Host species", "SRL", "Root diameter", "Root tissue density", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"))
+all_trait <- data.frame(traits = c("Host species", "SRL", "RD", "RTD", "MEM1", "MEM2", "MEM3", "MEM4", "All variables"))
 
 rsquare_df <-left_join(all_trait, rsquare_df)
 
@@ -2144,20 +2154,20 @@ rsquare_df <-left_join(all_trait, rsquare_df)
 root_bacteria <- ggplot(rsquare_df, aes(x = traits, y = Adj.R.squared)) +
   geom_point(stat = "identity", fill = "steelblue", size =5) +  # Increase point size to 3
   geom_segment(aes(x = traits, xend = traits, y = 0, yend = Adj.R.squared), color = "black") +  # Add black lines
-  labs(x = "", y = "Adjusted R²") +
-  ggtitle("Root Bacteria")+
-  theme_classic(base_size = 30) +
+  labs(x = "", y = expression(paste("Adjusted",~italic(R^2)))) +
+  ggtitle("Root bacteria")+
+  theme_classic(base_size = 15) +
   coord_flip()
 
 ```
 
-#Plot all (Appendix S15 all)
+#Plot all (Appendix S18 all)
 ```{r}
 library(patchwork)
 
 beta_drivers_plot <- leaf_fungi + Leaf_bacteria + root_fungi + root_bacteria
 
-ggsave(filename = "beta_drivers2.jpeg", plot= beta_drivers_plot, bg= "white", width = 16, height = 12, dpi = 600)
+ggsave(filename = "beta_drivers2.jpeg", plot= beta_drivers_plot, bg= "white", width = 14, height = 12, dpi = 600)
 
 ```
 
@@ -2192,16 +2202,15 @@ plot_ITS <- ggplot()+
   geom_point(data=ndv_ITS_leaf,aes(x=factor(0),y=NDV),colour="black", position="jitter")+
   geom_boxplot(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",  alpha=0.6)+
   geom_point(data=ndv_ITS_root,aes(x=factor(1),y=NDV),colour="black", position="jitter")+
-  #scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
-   scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
+  scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
+   #scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
  # ggtitle("Fungi null beta-distribution")+
-  annotate("text",x=1.5,y=1,label="t = -18.01, df = 106", size = 6)+
-  annotate("text",x=1.5,y=0.9,label="P < 2.2e-16", size = 6)+
-  theme_minimal(base_size =25)+
+  annotate("text",x=1.5,y=1,label="t = -18.01, df = 106", size = 5)+
+  annotate("text",x=1.5,y=0.9,label = bquote(italic(P) < .(format(2.2e-16, scientific = TRUE))), size = 5) +
+  theme_minimal(base_size =15)+
   theme(axis.title.x = element_blank())+
   ylim(0.2, 1.05)
 plot_ITS
-
 
 ggsave("./results/plot_ITS_ndv.jpeg", plot_ITS)
 
@@ -2224,18 +2233,18 @@ plot_16S <- ggplot()+
   geom_point(data=ndv_16S_leaf,aes(x=factor(0),y=NDV), position="jitter")+
   geom_boxplot(data=ndv_16S_root,aes(x=factor(1),y=NDV),colour="black",fill="#E69F00",alpha=0.6)+
   geom_point(data=ndv_16S_root,aes(x=factor(1),y=NDV), position="jitter")+
-  #scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
-   scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
+  scale_x_discrete(breaks=c(0,1),labels=c("Leaf","Root"))+
+  # scale_x_discrete(breaks = c("leaf", "root"), labels = c("", ""))+
   #ggtitle("Bacteria null beta-distribution")+
-  annotate("text",x=1.5,y=1,label="t = -1.8, df = 103", size = 6)+
-  annotate("text",x=1.5,y=0.9,label="P = 0.24", size = 6)+
-  theme_minimal(base_size = 25)+
+  annotate("text",x=1.5,y=1,label="t = -1.8, df = 103", size = 5)+
+  annotate("text",x=1.5,y=0.9,label=expression(italic(P) == 0.24), size = 5)+
+  theme_minimal(base_size = 15)+
   theme(axis.title.x = element_blank())+
   ylim(0.2, 1.05)
 
 #plot together
 NDV_plot <- ggarrange(plot_16S,plot_ITS,
-                      labels = c("Bacteria", "Fungi"),                      ncol = 2, nrow = 1, font.label = list(face="italic")) 
+                      labels = c("Bacteria", "Fungi"), ncol = 2, nrow = 1, font.label = list(face="plain")) 
 
 
 NDV_plot
@@ -2315,12 +2324,12 @@ fungi_plot_nst <- ggplot(data) +
 root = "#E69F00")) +
   geom_point(position= "jitter")+
 #ggtitle('NST for fungi, 1000 rand. + bootstrap')+
-  theme_minimal(base_size = 25)+
+  theme_minimal(base_size = 15)+
   theme(axis.title.x = element_blank(), legend.position = "none",
         
         panel.grid.major.x = element_line(color = "white"))+
-  annotate("text",x=1.5,y=1.01,label="t = -37.4, df = 153.9", size = 6)+
-  annotate("text",x=1.5,y=0.97,label="P < 2.2e-16", size = 6)+
+  annotate("text",x=1.3,y=1.01,label="t = -37.4, df = 153.9", size = 5)+
+  annotate("text",x=1.3,y=0.96,label = bquote(italic(P) < .(format(2.2e-16, scientific = TRUE))), size = 5) +
   scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
   ylim(0.55, 1.03)#ajout de determinisme et stochasticité avec fleche sur la droite du graphe
 fungi_plot_nst
@@ -2377,10 +2386,10 @@ bacteria_plot_nst <- ggplot(data_bac) +
 root = "#E69F00")) +
    geom_point(position= "jitter")+
 #ggtitle('NST for fungi, 1000 rand. + bootstrap')+
-  theme_minimal(base_size = 25)+
+  theme_minimal(base_size = 15)+
   theme(axis.title.x = element_blank(), legend.position = "none", panel.grid.major.x = element_line(color = "white"))+
-  annotate("text",x=1.5,y=1.01,label="t = -0.2, df = 173.7", size = 6)+
-  annotate("text",x=1.5,y=0.97,label="P=0.8", size = 6)+
+  annotate("text",x=1.5,y=1.01,label="t = -0.2, df = 173.7", size = 5)+
+  annotate("text",x=1.5,y=0.96,label=expression(italic(P)==0.8), size = 5)+
   scale_x_discrete(labels = c(leaf = "Leaf", root = "Root"))+
   ylim(0.55, 1.03)
   #geom_text()#ajout de determinisme et stochasticité avec fleche sur la droite du graphe
@@ -2390,7 +2399,7 @@ root = "#E69F00")) +
 ```{r}
 #plot together
 NST_plot <- ggarrange(bacteria_plot_nst,fungi_plot_nst,
-                      labels = c("Bacteria", "Fungi"),                      ncol = 2, nrow = 1, font.label = list(face="italic"))
+                      labels = c("Bacteria", "Fungi"), ncol = 2, nrow = 1, font.label = list(face="plain"))
 
 NST_plot
 
@@ -2401,7 +2410,7 @@ ggsave(filename = "NST.png", plot = NST_plot, bg = "white", width = 10, height =
 
 ```{r}
 
-assemblage_plot <- ggarrange(NULL, NDV_plot, NULL, NST_plot, ncol = 1, nrow = 4, labels = c("","A. Niche or neutral processes","","B. Stochastic or deterministic assembly"),vjust = c(0,-0.8), hjust = c(0,0), font.label = list(size= 20), heights = c(0.3,2,0.3,2))
+assemblage_plot <- ggarrange(NULL, NDV_plot, NULL, NST_plot, ncol = 1, nrow = 4, labels = c("","A. Niche or neutral processes","","B. Stochastic or deterministic assembly"),vjust = c(0,-0.8), hjust = c(0,0), font.label = list(size= 15), heights = c(0.3,2,0.3,2))
 
 assemblage_plot
 

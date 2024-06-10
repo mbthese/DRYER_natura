@@ -70,28 +70,28 @@ library(glue)
 library(webshot2)
 library(kableExtra)
 
-analyses_sol <- read_excel("E:/Sophie_pipeline/obitools/resources/DRYER_natura/analyses_sol.xls", sheet = "Feuil2")
+analyses_sol <- read_excel("D:/Sophie_pipeline/obitools/resources/DRYER_natura/analyses_sol.xls", sheet = "Feuil2")
 
 analyses_sol <- analyses_sol[-c(7:11), ] 
 analyses_sol <- analyses_sol[-c(19:20), ] 
-analyses_sol <- analyses_sol %>% dplyr::select(-Greenhouse) 
+analyses_sol <- analyses_sol %>% dplyr::select(-Greenhouse) %>% rename(Value = Paracou)
+
 
 
 analyses_sol_table <- gt(analyses_sol)
 
-analyses_sol$`Soil Tests`[9] <- paste0(analyses_sol$`Soil Tests`[9], 
+analyses_sol$Variable[9] <- paste0(analyses_sol$Variable[9], 
                                 footnote_marker_symbol(1))
 
-analyses_sol$Paracou <- as.numeric(analyses_sol$Paracou) %>% round(digits = 2)
-analyses_sol<- analyses_sol %>% drop_na(Paracou)
+analyses_sol$Value <- as.numeric(analyses_sol$Value) %>% round(digits = 2)
+analyses_sol<- analyses_sol %>% drop_na(Value)
 
-kbl(analyses_sol, caption ="Soil composition of seasonally flooded soils of Paracou.\\\\
-\\Analyses performed on composite samples 8 different locations in Paracou. Soil samples were collected in the 0-10 cm horizon.", escape =F, padding = -1L) %>%
+kbl(analyses_sol, escape =F, padding = -1L) %>%
   kable_classic_2(full_width = F) %>%
 #   kable_styling(font_size = 20) %>%
  row_spec(0, bold = TRUE, font_size = 15) %>%
-  footnote(general = "Results expressed in relation to the soil prepared according to the NF ISO 11464 standard, Cirad, Montpellier.",
-           symbol = c("For available phosphorous, the Olsen method was used, best method for acid soils.")) %>%
+  footnote(general = "Soils were prepared according to the NF ISO 11464 standard, Cirad, Montpellier.",
+           symbol = c("For available phosphorous, the Olsen method was used, the best method for acid soils.")) %>%
  save_kable(
     "analyses_sol_table_innatura.png")
 
@@ -103,9 +103,11 @@ View(analyses_sol)
 
 
 
-## Appendix S2: The seven selected species’ phylogeny.
+## Appendix S2: Phylogeny of the seven selected tree species
 
 ```{r Appendix S2, echo=FALSE, message=FALSE, warning=FALSE}
+library(ggtree)
+library(V.PhyloMaker)
 
 #select focal species
 species <- data.frame(taxon = c(
@@ -121,7 +123,7 @@ species <- data.frame(taxon = c(
 species <- dplyr::select(species, taxon , Genus, Species)
 
 #Use paracou database 30/08/2021 as the backbone phylogeny
-paracou <- read_excel("../Metradica_Paracou/Document/Paracou_database20210830.xlsx") %>% 
+paracou <- read_excel("resources/Paracou_database20210830.xlsx") %>% 
   dplyr::select(Family, Genus, Species) %>% 
   unique() %>% 
   full_join(species) %>% 
@@ -134,24 +136,29 @@ tree <- phylo.maker(sp.list = paracou, tree = GBOTB.extended, nodes = nodes.info
 
 #remove "#" for the next two lines when running for the first time, to save and reload the phylogeny.
 
-#save(tree, file = "./Results/phylogeny_subset.Rdata")
-#load("./Results/phylogeny_subset.Rdata")
+save(tree, file = "/Sophie_pipeline/obitools/results/phylogeny_subset.Rdata")
+load("/Sophie_pipeline/obitools/results/phylogeny_subset.Rdata")
 
-#build tree and visualize it
-A<- fortify(tree$scenario.3) %>% 
+#build tree without legend to get the legend without 'na'
+plot_tree_legend <- fortify(tree$scenario.3) %>% 
   mutate(species = gsub("_", " ", label)) %>% 
-  left_join(paracou) %>% 
-  ggtree(aes(col = taxon), layout="circular") + 
+  left_join(paracou) %>%
+  mutate(taxon = gsub("_", " ", taxon)) %>%
+  ggtree(aes(col = taxon), layout="circular") +   
   geom_tiplab2(aes(alpha = !is.na(taxon), size = !is.na(taxon))) +
-  theme_tree(legend.position='bottom', legend.text = element_text(face = "italic")) +
-  scale_alpha_manual("taxon", values = c(0.2, 4)) +
-  scale_size_manual("taxon", values = c(1, 4))
+  theme_tree(legend.position = "bottom",  axis.text = element_text(size = 20), legend.text = element_text(face = "italic", size = 20), legend.title = element_text(size = 22)) +
+  scale_alpha_manual(values = c(0.2, 1), guide = "none") +  # Hide alpha legend
+  scale_size_manual(values = c(1, 4), guide = "none") +     # Hide size legend
+  labs(color = "Taxa")
 
-A
+plot_tree_legend 
+
+p <- rotate_tree(plot_tree_legend, -20) + xlim(NA, 200)
+
 
 #save and choose saving format
-#ggsave(file="phylo_subset.svg", plot=A, width=15, height=10)
-#ggsave(file="phylo_subset.jpg", plot=A, width=15, height=10)
+ggsave(file="phylo_subset.svg", plot=p, width=15, height=10)
+ggsave(file="phylo_subset.jpg", plot=p, width=15, height=10)
 ```
 
 ##Appendix S3: The map of the collected seedlings
@@ -180,7 +187,7 @@ traits <- traits %>%
 
 p <-  traits %>%
   mutate(Trait = as.character(Trait)) %>% 
-  mutate(Trait = dplyr::recode(Trait, "NbLeaves" = "Number~of~leaves", "Height"= "Height~(cm)", "StemDiameter"="Stem~diameter~(mm)", "RootShoot"= "Root~Shoot~ratio")) %>% 
+  mutate(Trait = dplyr::recode(Trait, "NbLeaves" = "Number~of~leaves", "Height"= "Height~(cm)", "StemDiameter"="Stem~diameter~(mm)", "RootShoot"= "Root~to~shoot~ratio")) %>% 
   left_join(dplyr::select(traits, Name) %>%
               unique() %>%
               arrange(Name) %>%
@@ -458,6 +465,12 @@ taxonomy_leaf_fungi <- as.data.frame(taxonomy_leaf_fungi)
 
 leaf_fungi_taxo <- as.data.frame(colSums(taxonomy_leaf_fungi)) %>% rename(nbr_fungi_leaf= `colSums(taxonomy_leaf_fungi)`) %>% mutate( `fungi leaf assignation(%)` = round(nbr_fungi_leaf/ 10099*100,digits=2))
 
+leaf_fungi_taxo$Assignment <- rownames(leaf_fungi_taxo)
+leaf_fungi_taxo <- leaf_fungi_taxo %>% 
+  relocate(Assignment, .before = nbr_fungi_leaf)
+
+
+
 #now for the root dataset
 taxonomy_root_fungi <- c()
 taxonomy_root_fungi$Kingdom <- ifelse(is.na(taxo_root_fungi$Kingdom), 0, 1)
@@ -471,6 +484,10 @@ taxonomy_root_fungi <- as.data.frame(taxonomy_root_fungi)
 
 
 root_fungi_taxo <- as.data.frame(colSums(taxonomy_root_fungi)) %>% rename(nbr_fungi_root= `colSums(taxonomy_root_fungi)`) %>% mutate( `fungi root assignation(%)` = round(nbr_fungi_root/ 5573*100,digits=2))
+
+root_fungi_taxo$Assignment <- rownames(root_fungi_taxo)
+root_fungi_taxo <- root_fungi_taxo %>% 
+  relocate(Assignment, .before = nbr_fungi_root)
 
 #merge all fungi assignation information leaf + root datasets
 
@@ -501,6 +518,10 @@ taxonomy_leaf_bacteria <- as.data.frame(taxonomy_leaf_bacteria)
 
 leaf_bacteria_taxo <- as.data.frame(colSums(taxonomy_leaf_bacteria)) %>% rename(nbr_bacteria_leaf= `colSums(taxonomy_leaf_bacteria)`) %>% mutate( `bacteria leaf assignation(%)` = round(nbr_bacteria_leaf/ 3705*100,digits=2))
 
+leaf_bacteria_taxo$Assignment <- rownames(leaf_bacteria_taxo)
+leaf_bacteria_taxo <- leaf_bacteria_taxo %>% 
+  relocate(Assignment, .before = nbr_bacteria_leaf)
+
 #now for the root dataset
 taxonomy_root_bacteria <- c()
 taxonomy_root_bacteria$Kingdom <- ifelse(is.na(taxo_root_bacteria$Kingdom), 0, 1)
@@ -515,6 +536,10 @@ taxonomy_root_bacteria <- as.data.frame(taxonomy_root_bacteria)
 
 root_bacteria_taxo <- as.data.frame(colSums(taxonomy_root_bacteria)) %>% rename(nbr_bacteria_root= `colSums(taxonomy_root_bacteria)`) %>% mutate( `bacteria root assignation(%)` = round(nbr_bacteria_root/ 4310*100,digits=2))
 
+root_bacteria_taxo$Assignment <- rownames(root_bacteria_taxo)
+root_bacteria_taxo <- root_bacteria_taxo %>% 
+  relocate(Assignment, .before = nbr_bacteria_root)
+
 #merge all bacteria 
 
 bacteria_assignation <- cbind(leaf_bacteria_taxo, root_bacteria_taxo) %>% dplyr::select(`bacteria leaf assignation(%)`, `bacteria root assignation(%)`)
@@ -522,6 +547,9 @@ bacteria_assignation <- cbind(leaf_bacteria_taxo, root_bacteria_taxo) %>% dplyr:
 #merge bacteria and fungi
 
 final_assignation <- cbind(bacteria_assignation, fungi_assignation)
+final_assignation$Assignment <- rownames(final_assignation)
+final_assignation <- final_assignation %>% 
+  relocate(Assignment, .before = `bacteria leaf assignation(%)`)
 
 #make pretty table
 library(ggplot2)
@@ -533,12 +561,12 @@ library(glue)
 library(webshot2)
 library(kableExtra)
 
+final_assignation[1, 1] <- '"Kingdom"'
 
-kbl(final_assignation, escape =F, padding = -1L) %>%
+kbl(final_assignation, escape =F, padding = -1L, row.names = FALSE) %>%
   kable_classic_2(full_width = F) %>%
  kable_styling(font_size = 20) %>%
  row_spec(0, bold = TRUE, font_size = 15) %>%
-  footnote(general = "Taxonomic assignment was done using SILVA for 16S (Quast et al., 2012) (Version: 1.9.10 / 1.4.9; SILVA: r138.1 - Last Updated: 14.03.2023) and UNITE for ITS2 (Abarenkov et al., 2021) (Version: 16.10.2022). ") %>%
  save_kable(
     "essai_taxa_assignation_info.png")
 ```
@@ -1076,9 +1104,6 @@ tmp <- tmp %>%
   dplyr::select(-Genus)%>%
   rename(Genus = Genus3)
 
-tmp <- tmp %>%
-  dplyr::select(-Genus)%>%
-  rename(Genus = Genus3)
 #plot phyla
 root_genus_plot <- tmp  %>%
     mutate(Name = gsub("_", " ", Name)) %>% 
@@ -1724,30 +1749,31 @@ alpha_16S_plot_leaf <- leaf$samples  %>%
   scale_fill_manual(
     values = c(leaf = "#6bbf59",
     root = "#E79F02"))+
- ylab(expression(paste("Diversity / bacteria")))+
-  theme_minimal(base_size = 20)+
-    geom_text(aes(x = 3, y = 150, label = "p-value = 0.8"), color = "black", size = 6)+
+ ylab(expression(paste("Bacteria / \nEffective number of species")))+
+  theme_minimal(base_size = 15)+
+    geom_text(aes(x = 1, y = 150), label = expression(italic(P) == 0.8), color = "black", size = 6)+
   theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom") 
 
-alpha_16S_plot_root <- root$samples  %>%
-   mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species) ) %>%
+alpha_16S_plot_root <- root$samples %>%
+  mutate(name = paste0(substr(Genus, 1, 1), ".", " ", Species)) %>%
   ggplot() +
   aes(x = name, y = Shannon, fill = organ) +
   geom_boxplot() +
-  scale_fill_manual(
-    values = c(leaf = "#6bbf59",
-    root = "#E79F02"))+
-  # ylab(expression(paste("Diversity \n bacteria")))+
-  theme_minimal(base_size = 20)+
-   geom_text(aes(x = 3, y = 110, label = "p-value = 0.4"), color = "black", size = 6)+
-  theme(axis.text.x = element_text(face = "italic", angle = 45), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_blank()) 
+  scale_fill_manual(values = c(leaf = "#6bbf59", root = "#E79F02")) +
+  theme_minimal(base_size = 15) +
+  geom_text(aes(x = 1, y = 110), label = expression(italic(P) == 0.4), color = "black", size = 6) +
+  theme(axis.text.x = element_text(face = "italic", angle = 45),
+        axis.title.x = element_blank(),
+        legend.position = "bottom",
+        axis.title.y = element_blank())
+alpha_16S_plot_root
 ```
 
 *Fungi*
 ```{r}
 
 #data ITS
-load("E:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
+load("D:/Sophie_pipeline/obitools/resources/Metabarlist_natura_clean_ITS2_traits.Rdata")
 leaf <- subset_metabarlist(natura_clean, table = "samples",
                           indices = natura_clean$samples$organ == "leaf")
 root <- subset_metabarlist(natura_clean, table = "samples",
@@ -1812,9 +1838,9 @@ alpha_ITS_plot_leaf <- leaf$samples  %>%
   scale_fill_manual(
     values = c(leaf = "#6bbf59",
     root = "#E79F02"))+
-  ylab(expression(paste("Diversity / fungi")))+ #\n jump line
-  theme_minimal(base_size = 20)+
-  geom_text(aes(x = 3, y = 250, label = "p-value = 0.9"), color = "black", size = 6)+
+  ylab(expression(paste("Fungi / \nEffective number of species")))+ #\n jump line
+  theme_minimal(base_size = 15)+
+  geom_text(aes(x = 1, y = 250), label = expression(italic(P) == 0.9), color = "black", size = 6)+
   theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "none") 
 
 alpha_ITS_plot_root <- root$samples  %>%
@@ -1827,7 +1853,7 @@ alpha_ITS_plot_root <- root$samples  %>%
     root = "#E79F02"))+
   #ylab(expression(paste("Alpha diversity \n fungi")))+
   theme_minimal(base_size = 20)+
-    geom_text(aes(x = 3, y = 100, label = "p-value = 0.03"), color = "black", size = 6)+
+    geom_text(aes(x = 1.05, y = 100), label = expression(italic(P) == 0.03), color = "black", size = 6)+
   theme(axis.text.x = element_blank(), axis.title.x = element_blank(),legend.position = "bottom", axis.title.y = element_blank()) 
 alpha_ITS_plot_root 
 ```
@@ -1835,9 +1861,32 @@ alpha_ITS_plot_root
 plots
 ```{r}
 
-#combine plots ITS leaf and root
-alpha_plot <- ggarrange(alpha_ITS_plot_leaf,alpha_ITS_plot_root, alpha_16S_plot_leaf,alpha_16S_plot_root, labels = c('A', 'B', 'C', 'D'), ncol = 2, nrow = 2, legend = "none", label.y = c(1,1,1.15,1.15), font.label = list(size=18))
-alpha_plot
+# include extra margin space
+alpha_ITS_plot_leaf <- alpha_ITS_plot_leaf +
+  theme(plot.margin = unit(c(1, 1, 1.5, 1), "cm"))
+
+alpha_ITS_plot_root <- alpha_ITS_plot_root +
+  theme(plot.margin = unit(c(1, 1, 1.5, 1), "cm"))
+
+alpha_16S_plot_leaf <- alpha_16S_plot_leaf +
+  theme(plot.margin = unit(c(1, 1, 1.5, 1), "cm"))
+
+alpha_16S_plot_root <- alpha_16S_plot_root +
+  theme(plot.margin = unit(c(1, 1, 1.5, 1), "cm"))
+
+# Combine 
+alpha_plot <- ggarrange(
+  alpha_ITS_plot_leaf,
+  alpha_ITS_plot_root,
+  alpha_16S_plot_leaf,
+  alpha_16S_plot_root,
+  labels = c('A', 'B', 'C', 'D'),
+  ncol = 2,
+  nrow = 2,
+  legend = "none",
+  label.y = c(1, 1, 1.15, 1.15),
+  font.label = list(size = 18)
+)
 
 ggsave("./results/SI_Hill_diversity.jpeg", alpha_plot, width = 12, height =8)
 ```
